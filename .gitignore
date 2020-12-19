@@ -1,0 +1,29 @@
+*.o
+*.pyc
+
+# eclipse setting
+.settings
+.cproject
+.project
+
+# vscode setting
+.vscode
+
+# Example project files
+**/sdkconfig
+**/sdkconfig.old
+**/build
+
+# emacs
+.dir-locals.el
+
+# emacs temp file suffixes
+*~
+.#*
+\#*#
+
+# eclipse setting
+.settings
+
+# MacOS directory files
+.DS_Store
