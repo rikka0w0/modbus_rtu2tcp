@@ -15,6 +15,7 @@
 #include "freertos/task.h"
 #include "freertos/event_groups.h"
 
+#include "lwip/ip6.h"
 #include "lwip/err.h"
 #include "lwip/sys.h"
 
@@ -44,7 +45,7 @@ static void initialise_mdns(void) {
 
     //structure with TXT records
     mdns_txt_item_t serviceTxtData[3] = {
-        {"board","esp32"},
+        {"board","esp8266"},
         {"u","user"},
         {"p","password"}
     };
@@ -52,9 +53,9 @@ static void initialise_mdns(void) {
     //initialize service
     ESP_ERROR_CHECK( mdns_service_add("ESP32-WebServer", "_http", "_tcp", 80, serviceTxtData, 3) );
     //add another TXT item
-    ESP_ERROR_CHECK( mdns_service_txt_item_set("_http", "_tcp", "path", "/foobar") );
+    //ESP_ERROR_CHECK( mdns_service_txt_item_set("_http", "_tcp", "path", "/foobar") );
     //change TXT item value
-    ESP_ERROR_CHECK( mdns_service_txt_item_set("_http", "_tcp", "u", "admin") );
+    //ESP_ERROR_CHECK( mdns_service_txt_item_set("_http", "_tcp", "u", "admin") );
     //free(hostname);
 }
 
@@ -77,20 +78,28 @@ static void wifi_event_handler(void* arg, esp_event_base_t event_base,
         ESP_LOGI(TAG, "station "MACSTR" leave, AID=%d",
                  MAC2STR(event->mac), event->aid);
     } else if (event_id == WIFI_EVENT_AP_START) {
+        // IPv6 - FE80::1
         ESP_ERROR_CHECK(tcpip_adapter_create_ip6_linklocal(TCPIP_ADAPTER_IF_AP));
+        struct netif * netif = NULL;
+        ESP_ERROR_CHECK(tcpip_adapter_get_netif(TCPIP_ADAPTER_IF_AP, (void**) &netif));
+        ip6_addr_t ip6ll;
+        ESP_ERROR_CHECK(ip6addr_aton("FE80::1", &ip6ll) == 1 ? 0 : 1);
+        netif_ip6_addr_set(netif, 0, &ip6ll);
+
+        // IPv4 - 10.1.10.1
+        tcpip_adapter_ip_info_t info = { 0, };
+		IP4_ADDR(&info.ip, 10, 1, 10, 1);
+		IP4_ADDR(&info.gw, 10, 1, 10, 1);
+		IP4_ADDR(&info.netmask, 255, 255, 255, 0);
+		ESP_ERROR_CHECK(tcpip_adapter_dhcps_stop(TCPIP_ADAPTER_IF_AP));
+		ESP_ERROR_CHECK(tcpip_adapter_set_ip_info(TCPIP_ADAPTER_IF_AP, &info));
+		ESP_ERROR_CHECK(tcpip_adapter_dhcps_start(TCPIP_ADAPTER_IF_AP));
     }
 }
 
 void wifi_init_softap() {
-    tcpip_adapter_init();
-    /*tcpip_adapter_ip_info_t info = { 0, };
-    IP4_ADDR(&info.ip, 10, 1, 0, 1);
-    IP4_ADDR(&info.gw, 10, 1, 0, 1);
-    IP4_ADDR(&info.netmask, 255, 255, 255, 0);
-    ESP_ERROR_CHECK(tcpip_adapter_dhcps_stop(TCPIP_ADAPTER_IF_AP));
-    ESP_ERROR_CHECK(tcpip_adapter_set_ip_info(TCPIP_ADAPTER_IF_AP, &info));
-    ESP_ERROR_CHECK(tcpip_adapter_dhcps_start(TCPIP_ADAPTER_IF_AP));*/
-
+    // tcpip_adapter_init();
+    /**/
 
     wifi_init_config_t cfg = WIFI_INIT_CONFIG_DEFAULT();
     ESP_ERROR_CHECK(esp_wifi_init(&cfg));
@@ -123,7 +132,7 @@ void wifi_init_softap() {
 
 void app_main() {
     ESP_ERROR_CHECK(nvs_flash_init());
-    ESP_ERROR_CHECK(esp_netif_init()); // mDNS
+    ESP_ERROR_CHECK(esp_netif_init()); // mDNS Implies tcpip_adapter_init();
     ESP_ERROR_CHECK(esp_event_loop_create_default());
 
     s_connect_event_group = xEventGroupCreate();
