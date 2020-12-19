@@ -94,6 +94,10 @@ static void wifi_event_handler(void* arg, esp_event_base_t event_base,
 		ESP_ERROR_CHECK(tcpip_adapter_dhcps_stop(TCPIP_ADAPTER_IF_AP));
 		ESP_ERROR_CHECK(tcpip_adapter_set_ip_info(TCPIP_ADAPTER_IF_AP, &info));
 		ESP_ERROR_CHECK(tcpip_adapter_dhcps_start(TCPIP_ADAPTER_IF_AP));
+
+		// Webserver
+		extern esp_err_t  start_webserver(void);
+		ESP_ERROR_CHECK(start_webserver());
     }
 }
 
@@ -144,6 +148,7 @@ void app_main() {
     xEventGroupWaitBits(s_connect_event_group, CONNECTED_BITS, pdTRUE, pdTRUE, portMAX_DELAY);
     ESP_LOGI(TAG, "IPv6 address: " IPV6STR, IPV62STR(s_ipv6_addr));
     initialise_mdns();
+
     /* Print chip information
     esp_chip_info_t chip_info;
     esp_chip_info(&chip_info);
@@ -154,12 +159,5 @@ void app_main() {
 
     printf("%dMB %s flash\n", spi_flash_get_chip_size() / (1024 * 1024),
             (chip_info.features & CHIP_FEATURE_EMB_FLASH) ? "embedded" : "external");
-
-    for (int i = 10; i >= 0; i--) {
-        printf("Restarting in %d seconds...\n", i);
-        vTaskDelay(1000 / portTICK_PERIOD_MS);
-    }
-    printf("Restarting now.\n");
-    fflush(stdout);
-    esp_restart();*/
+    */
 }
