@@ -21,10 +21,14 @@
 
 #include <esp_http_server.h>
 
+#include "main.h"
+
 extern const char index_html_start[] asm("_binary_index_html_start");
 extern const char index_html_end[]   asm("_binary_index_html_end");
 
 static const char *TAG="APP";
+
+static httpd_handle_t server = NULL;
 
 /* An HTTP GET handler */
 esp_err_t hello_get_handler(httpd_req_t *req)
@@ -117,30 +121,40 @@ esp_err_t echo_post_handler(httpd_req_t *req)
 httpd_uri_t echo = {
     .uri       = "/echo",
     .method    = HTTP_POST,
-    .handler   = echo_post_handler,
-    .user_ctx  = "Restarting now..."
+    .handler   = echo_post_handler
 };
 
-/* An HTTP GET handler */
-esp_err_t restart_get_handler(httpd_req_t *req) {
-    ESP_LOGI(TAG, "Restarting now.");
-    fflush(stdout);
-
-    const char* resp_str = (const char*) req->user_ctx;
-    httpd_resp_send(req, resp_str, strlen(resp_str));
-
+static void restart_task(void* param) {
+    stop_webserver();
+    ESP_LOGI(TAG, "Restarting...");
     esp_restart();
+}
 
+/* An HTTP GET handler */
+static esp_err_t restart_get_handler(httpd_req_t *req) {
+    const char* resp_str = "?confirm=yes not found, restarting aborted.";
+    char buf[32];
+    if (httpd_req_get_url_query_str(req, buf, sizeof(buf)) == ESP_OK) {
+        char param[4];
+        /* Get value of expected key from query string */
+        if (httpd_query_key_value(buf, "confirm", param, sizeof(param)) == ESP_OK &&
+                strcmp(param, "yes") == 0) {
+            resp_str = (const char*) req->user_ctx;
+
+            xTaskCreate(restart_task, "restart_task", 1024, NULL, 6, NULL);
+        }
+    }
+
+    httpd_resp_send(req, resp_str, strlen(resp_str));
     return ESP_OK;
 }
 
 httpd_uri_t restart = {
     .uri       = "/restart",
     .method    = HTTP_GET,
-    .handler   = restart_get_handler
+    .handler   = restart_get_handler,
+    .user_ctx  = "Restarting now..."
 };
-
-static httpd_handle_t server = NULL;
 
 esp_err_t start_webserver(void) {
     if (server != NULL)
@@ -163,9 +177,13 @@ esp_err_t start_webserver(void) {
     return ESP_FAIL;
 }
 
-void stop_webserver(void)
-{
-    // Stop the httpd server
+void stop_webserver(void) {
+    if (server == NULL) {
+        ESP_LOGI(TAG, "Web server is not running.");
+        return;
+    }
+
+    ESP_LOGI(TAG, "Stopping web server.");
     httpd_stop(server);
-    ESP_LOGI(TAG, "Server stopped.");
+    ESP_LOGI(TAG, "Web server stopped.");
 }
