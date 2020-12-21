@@ -86,51 +86,13 @@ httpd_uri_t hello = {
     .user_ctx  = NULL
 };
 
-/* An HTTP POST handler */
-esp_err_t echo_post_handler(httpd_req_t *req)
-{
-    char buf[10000];
-    int ret, remaining = req->content_len;
-
-    while (remaining > 0) {
-        /* Read the data for the request */
-        if ((ret = httpd_req_recv(req, buf,
-                        MIN(remaining, sizeof(buf)))) <= 0) {
-            if (ret == HTTPD_SOCK_ERR_TIMEOUT) {
-                /* Retry receiving if timeout occurred */
-                continue;
-            }
-            return ESP_FAIL;
-        }
-
-        /* Send back the same data */
-        httpd_resp_send_chunk(req, buf, ret);
-        remaining -= ret;
-
-        /* Log data received */
-        ESP_LOGI(TAG, "=========== RECEIVED DATA ==========");
-        ESP_LOGI(TAG, "%.*s", ret, buf);
-        ESP_LOGI(TAG, "====================================");
-    }
-
-    // End response
-    httpd_resp_send_chunk(req, NULL, 0);
-    return ESP_OK;
-}
-
-httpd_uri_t echo = {
-    .uri       = "/echo",
-    .method    = HTTP_POST,
-    .handler   = echo_post_handler
-};
-
+// "/restart?confirm=yes", restart the system
 static void restart_task(void* param) {
     stop_webserver();
     ESP_LOGI(TAG, "Restarting...");
     esp_restart();
 }
 
-/* An HTTP GET handler */
 static esp_err_t restart_get_handler(httpd_req_t *req) {
     const char* resp_str = "?confirm=yes not found, restarting aborted.";
     char buf[32];
@@ -156,6 +118,54 @@ httpd_uri_t restart = {
     .user_ctx  = "Restarting now..."
 };
 
+// "/config?ssid=BASE64&wifipass=BASE64", set the configuration
+static esp_err_t config_get_handler(httpd_req_t *req) {
+    char* resp = (char*) req->user_ctx;
+    char* buf = NULL;
+    size_t buf_len = httpd_req_get_url_query_len(req) + 1;
+    if (buf_len > 1) {
+        buf = (char*) malloc(buf_len);
+        if (httpd_req_get_url_query_str(req, buf, buf_len) == ESP_OK) {
+            char param[128];
+            if (httpd_query_key_value(buf, "method", param, sizeof(param)) == ESP_OK) {
+                if (strcmp(param, "set") == 0) {
+                    /* Get value of expected key from query string */
+                    if (httpd_query_key_value(buf, "ssid", param, sizeof(param)) == ESP_OK) {
+                        ESP_LOGI(TAG, "Set SSID to %s", param);
+                        cp_set_wifi_params(param, NULL);
+                    }
+
+                    if (httpd_query_key_value(buf, "wifipass", param, sizeof(param)) == ESP_OK) {
+                        ESP_LOGI(TAG, "Set Wifi Password to %s", param);
+                        cp_set_wifi_params(NULL, param);
+                    }
+                } else if (strcmp(param, "get") == 0
+                        && httpd_query_key_value(buf, "field", param, sizeof(param)) == ESP_OK) {
+                    if (strcmp(param, "ssid") == 0) {
+                        cp_get_wifi_params(buf, NULL);
+                    } else if (strcmp(param, "wifipass") == 0) {
+                        cp_get_wifi_params(NULL, buf);
+                    }
+                    resp = buf;
+                }
+            }
+        }
+    }
+
+    httpd_resp_send(req, resp, strlen(resp));
+
+    if (buf != NULL)
+        free(buf);
+    return ESP_OK;
+}
+
+httpd_uri_t config_get = {
+    .uri       = "/config",
+    .method    = HTTP_GET,
+    .handler   = config_get_handler,
+    .user_ctx  = "Ok~~~"
+};
+
 esp_err_t start_webserver(void) {
     if (server != NULL)
         return ESP_OK;
@@ -168,7 +178,7 @@ esp_err_t start_webserver(void) {
         // Set URI handlers
         ESP_LOGI(TAG, "Registering URI handlers");
         httpd_register_uri_handler(server, &hello);
-        httpd_register_uri_handler(server, &echo);
+        httpd_register_uri_handler(server, &config_get);
         httpd_register_uri_handler(server, &restart);
         return ESP_OK;
     }

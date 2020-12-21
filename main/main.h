@@ -10,6 +10,16 @@
 
 #include "esp_err.h"
 
+#define CFG_STORAGE_NAMESPACE "app_cfg"
+#define WIFI_SSID_MAXLEN 32
+#define WIFI_PASS_MAXLEN 64
+
+/**
+ * If not set, ssid or pass will be a string with 0 length.
+ */
+esp_err_t cp_get_wifi_params(char ssid[WIFI_SSID_MAXLEN], char pass[WIFI_PASS_MAXLEN]);
+esp_err_t cp_set_wifi_params(const char* ssid, const char* pass);
+
 esp_err_t start_webserver(void);
 void stop_webserver(void);
 

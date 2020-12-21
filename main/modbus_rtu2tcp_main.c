@@ -19,6 +19,8 @@
 #include "lwip/err.h"
 #include "lwip/sys.h"
 
+#include "main.h"
+
 #define EXAMPLE_ESP_WIFI_SSID      "Modbus RTU2TCP Init Setup"
 #define EXAMPLE_ESP_WIFI_PASS      "mypassword"
 #define EXAMPLE_MAX_STA_CONN       4
@@ -29,9 +31,10 @@ static const char* hostname = "modbus_rtu2tcp";
 #define GOT_IPV4_BIT BIT(0)
 #define GOT_IPV6_BIT BIT(1)
 
-#define CONNECTED_BITS (GOT_IPV6_BIT)
+#define CONNECTED_BITS (GOT_IPV4_BIT | GOT_IPV6_BIT)
 
 static EventGroupHandle_t s_connect_event_group;
+static ip4_addr_t s_ipv4_addr;
 static ip6_addr_t s_ipv6_addr;
 
 static void initialise_mdns(void) {
@@ -57,6 +60,13 @@ static void initialise_mdns(void) {
     //change TXT item value
     //ESP_ERROR_CHECK( mdns_service_txt_item_set("_http", "_tcp", "u", "admin") );
     //free(hostname);
+}
+
+static void on_got_ip(void *arg, esp_event_base_t event_base,
+                      int32_t event_id, void *event_data) {
+    ip_event_got_ip_t *event = (ip_event_got_ip_t *)event_data;
+    memcpy(&s_ipv4_addr, &event->ip_info.ip, sizeof(s_ipv4_addr));
+    xEventGroupSetBits(s_connect_event_group, GOT_IPV4_BIT);
 }
 
 static void on_got_ipv6(void *arg, esp_event_base_t event_base,
@@ -95,9 +105,18 @@ static void wifi_event_handler(void* arg, esp_event_base_t event_base,
 		ESP_ERROR_CHECK(tcpip_adapter_set_ip_info(TCPIP_ADAPTER_IF_AP, &info));
 		ESP_ERROR_CHECK(tcpip_adapter_dhcps_start(TCPIP_ADAPTER_IF_AP));
 
+		memcpy(&s_ipv4_addr, &info.ip, sizeof(s_ipv4_addr));
+		xEventGroupSetBits(s_connect_event_group, GOT_IPV4_BIT);
+
 		// Webserver
 		extern esp_err_t  start_webserver(void);
 		ESP_ERROR_CHECK(start_webserver());
+    } else if (event_id == WIFI_EVENT_STA_CONNECTED) {
+        tcpip_adapter_create_ip6_linklocal(TCPIP_ADAPTER_IF_STA);
+
+        // Webserver
+        extern esp_err_t  start_webserver(void);
+        ESP_ERROR_CHECK(start_webserver());
     }
 }
 
@@ -141,13 +160,36 @@ void app_main() {
 
     s_connect_event_group = xEventGroupCreate();
 
-    ESP_LOGI(TAG, "ESP_WIFI_MODE_AP");
-    wifi_init_softap();
+    char ssid[WIFI_SSID_MAXLEN], pass[WIFI_PASS_MAXLEN];
+    ESP_ERROR_CHECK(cp_get_wifi_params(ssid, pass));
+    if (strlen(ssid) == 0) {
+        ESP_LOGI(TAG, "ESP_WIFI_MODE_AP");
+        wifi_init_softap();
+        initialise_mdns();
+    } else {
+        ESP_LOGI(TAG, "ESP_WIFI_MODE_STA: [%s] = [%s]", ssid, pass);
+
+        wifi_init_config_t cfg = WIFI_INIT_CONFIG_DEFAULT();
+        ESP_ERROR_CHECK(esp_wifi_init(&cfg));
+        ESP_ERROR_CHECK(esp_event_handler_register(IP_EVENT, IP_EVENT_STA_GOT_IP, &on_got_ip, NULL));
+        ESP_ERROR_CHECK(esp_event_handler_register(IP_EVENT, IP_EVENT_GOT_IP6, &on_got_ipv6, NULL));
+        ESP_ERROR_CHECK(esp_event_handler_register(WIFI_EVENT, ESP_EVENT_ANY_ID, &wifi_event_handler, NULL));
+        wifi_config_t wifi_config = { 0 };
+
+        strcpy((char *)&wifi_config.sta.ssid, ssid);
+        strcpy((char *)&wifi_config.sta.password, pass);
+
+        ESP_LOGI(TAG, "Connecting to %s...", wifi_config.sta.ssid);
+        ESP_ERROR_CHECK(esp_wifi_set_mode(WIFI_MODE_STA));
+        ESP_ERROR_CHECK(esp_wifi_set_config(ESP_IF_WIFI_STA, &wifi_config));
+        ESP_ERROR_CHECK(esp_wifi_start());
+        ESP_ERROR_CHECK(esp_wifi_connect());
+    }
 
     printf("Hello world!\n");
     xEventGroupWaitBits(s_connect_event_group, CONNECTED_BITS, pdTRUE, pdTRUE, portMAX_DELAY);
+    ESP_LOGI(TAG, "IPv4 address: " IPSTR, IP2STR(&s_ipv4_addr));
     ESP_LOGI(TAG, "IPv6 address: " IPV6STR, IPV62STR(s_ipv6_addr));
-    initialise_mdns();
 
     /* Print chip information
     esp_chip_info_t chip_info;

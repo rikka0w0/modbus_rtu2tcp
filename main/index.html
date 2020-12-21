@@ -5,17 +5,11 @@
 <title>Modbus RTU2TCP Configuration</title>
 <h2>Modbus RTU2TCP Configuration</h2>
 
-<form action="http://10.1.10.1/echo" method="POST">
-  <label for="ssid">First name:</label><br>
-  <input type="text" id="ssid" name="ssid" value="John" required><br>
-  <label for="lname">Last name:</label><br>
-  <input type="text" id="wifipass" name="wifipass" value="Doe"><br><br>
-  <input type="submit" value="Submit">
-</form> 
-
-<button onclick="applySettings()">Try it</button>
-
-<p>2If you click the "Submit" button, the form-data will be sent to a page called "/action_page.php".</p>
+<label for="ssid">Wifi SSID:</label><br>
+<input type="text" id="ssid" name="ssid"><br>
+<label for="wifipass">Wifi Password:</label><br>
+<input type="text" id="wifipass" name="wifipass"><br><br>
+<button onclick="applySettings()">Apply</button>
 
 <form action="/restart?confirm=yes">
 	<input type="submit" value="Restart" /><br>
@@ -27,10 +21,11 @@ QwQ
 </div>
 
 <script>
-function formatParams( params ){
-	return "?" + Object
-		.keys(params)
-		.map(function(key){
+var fields = ["ssid", "wifipass"];
+
+function formatParams( method, params ){
+	return "?method=" + method + "&" +
+		Object.keys(params).map(function(key){
 			return key+"="+encodeURIComponent(params[key])
 		})
 		.join("&");
@@ -41,10 +36,10 @@ function applySettings() {
 	var wifipass = document.getElementById("wifipass").value;
 
 	var params = {};
-	["ssid", "wifipass"].forEach(function(key) {
+	fields.forEach(function(key) {
 		params[key] = document.getElementById(key).value;
 	});
-	var reqUrl = "/" + formatParams(params);
+	var reqUrl = "/config" + formatParams("set", params);
 	console.log("reqUrl = "+reqUrl);
 
 	var xhttp = new XMLHttpRequest();
@@ -56,6 +51,21 @@ function applySettings() {
 	xhttp.open("GET", reqUrl, true);
 	xhttp.send();
 }
+
+fields.forEach(function(key) {
+	var params = {};
+	params["field"] = key;
+	var reqUrl = "/config" + formatParams("get", params);
+	var xhttp = new XMLHttpRequest();
+	xhttp.onreadystatechange = function() {
+		if (this.readyState == 4 && this.status == 200) {
+			document.getElementById(key).value = xhttp.responseText;
+		}
+	};
+	xhttp.open("GET", reqUrl, true);
+	xhttp.send();
+});
+
 </script>
 
 </body>
