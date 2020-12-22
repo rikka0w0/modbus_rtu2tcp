@@ -18,18 +18,93 @@
 
 #define MODBUS_PORT 502
 
-static const char *TAG = "MODBUS_TCP";
-#define MODBUS_LOGE(...) ESP_LOGE(TAG, ##__VA_ARGS__)
-#define MODBUS_LOGI(...) ESP_LOGI(TAG, ##__VA_ARGS__)
+typedef struct tcp_server_config tcp_server_config_t;
+typedef void (*tcp_server_init_tm) (tcp_server_config_t*);
+typedef void (*tcp_server_new_conn_tm)(const tcp_server_config_t*, int); // this, clientSocket
+typedef void (*tcp_server_conn_down_tm)(const tcp_server_config_t*, int); // this, clientSocket
+struct tcp_server_config {
+    // Properties
+    union {
+        struct sockaddr_in v4;
+        struct sockaddr_in6 v6;
+        struct sockaddr sa;
+    } addr;
+    socklen_t addr_len;
+    int protocol;
 
-void tcp_server_ip4_task(void *pvParameters) {
-    struct sockaddr_in destAddr;
-    destAddr.sin_addr.s_addr = htonl(INADDR_ANY);
-    destAddr.sin_family = AF_INET;
-    destAddr.sin_port = htons(MODBUS_PORT);
+    // Callbacks
+    tcp_server_new_conn_tm tcp_server_new_conn;
+    tcp_server_conn_down_tm tcp_server_conn_down;
+};
 
-    int listener = socket(destAddr.sin_family, SOCK_STREAM, IPPROTO_IP);
+#define MODBUS_LOGE(...) ESP_LOGE(pcTaskGetName(NULL), ##__VA_ARGS__)
+#define MODBUS_LOGI(...) ESP_LOGI(pcTaskGetName(NULL), ##__VA_ARGS__)
+
+static void tcp_server_data_arrive(const tcp_server_config_t* cfg, int clientSocket, char* buf, ssize_t len) {
+    // Echo back
+    if(send(clientSocket, buf, len, 0) == -1)
+        MODBUS_LOGE("send() error lol!");
+
+    MODBUS_LOGI("Receive bytes (%d):", len);
+    for (ssize_t i=0; i<len; i++)
+        MODBUS_LOGI("0x%02X", buf[i]);
+}
+
+static void tcp_server_ip4_new_conn(const tcp_server_config_t* cfg, int clientSocket) {
+    struct sockaddr_in clientAddr;
+    socklen_t addrLen = sizeof(struct sockaddr_in);
+    getpeername(clientSocket, (struct sockaddr*)&clientAddr, &addrLen);
+    char addr_str[16];
+    inet_ntoa_r(clientAddr.sin_addr, addr_str, sizeof(addr_str) - 1);
+    MODBUS_LOGI("New connection from %s on socket %d", addr_str, clientSocket);
+}
+
+static void tcp_server_ip6_new_conn(const tcp_server_config_t* cfg, int clientSocket) {
+    struct sockaddr_in6 clientAddr;
+    socklen_t addrLen = sizeof(struct sockaddr_in6);
+    getpeername(clientSocket, (struct sockaddr*)&clientAddr, &addrLen);
+    char addr_str[40];
+    inet6_ntoa_r(clientAddr.sin6_addr, addr_str, sizeof(addr_str) - 1);
+    MODBUS_LOGI("New connection from %s on socket %d", addr_str, clientSocket);
+}
+
+static void tcp_server_conn_down(const tcp_server_config_t* cfg, int clientSocket) {
+    MODBUS_LOGI("Socket %d hung up\n", clientSocket);
+}
+
+static void tcp_server_ip4_init(tcp_server_config_t* cfg) {
+    cfg->addr.v4.sin_addr.s_addr = htonl(INADDR_ANY);
+    cfg->addr.v4.sin_family = AF_INET;
+    cfg->addr.v4.sin_port = htons(MODBUS_PORT);
+    cfg->addr_len = sizeof(struct sockaddr_in);
+    cfg->protocol = IPPROTO_IP;
+
+    // Callbacks
+    cfg->tcp_server_new_conn = tcp_server_ip4_new_conn;
+    cfg->tcp_server_conn_down = tcp_server_conn_down;
+}
+
+static void tcp_server_ip6_init(tcp_server_config_t* cfg) {
+    bzero(&(cfg->addr.v6.sin6_addr.un), sizeof(cfg->addr.v6.sin6_addr.un));
+    cfg->addr.v6.sin6_family = AF_INET6;
+    cfg->addr.v6.sin6_port = htons(MODBUS_PORT);
+    cfg->addr_len = sizeof(struct sockaddr_in6);
+    cfg->protocol = IPPROTO_IPV6;
+
+    // Callbacks
+    cfg->tcp_server_new_conn = tcp_server_ip6_new_conn;
+    cfg->tcp_server_conn_down = tcp_server_conn_down;
+}
+
+// For both IPv4 and IPv6
+static void tcp_server_task(void *pvParameters) {
+    tcp_server_config_t cfg;
+    tcp_server_init_tm mtd_init = (tcp_server_init_tm) pvParameters;
+    mtd_init(&cfg);
+
+    int listener = socket(cfg.addr.sa.sa_family, SOCK_STREAM, cfg.protocol);
     if (listener < 0) {
+        MODBUS_LOGE("Unable to create the socket");
         goto close_socket;
     }
 
@@ -39,9 +114,9 @@ void tcp_server_ip4_task(void *pvParameters) {
         goto close_socket;
     }
 
-    struct linger sl;
-    sl.l_onoff = 1;     /* non-zero value enables linger option in kernel */
-    sl.l_linger = 30;    /* timeout interval in seconds */
+    //struct linger sl;
+    //sl.l_onoff = 1;     // non-zero value enables linger option in kernel
+    //sl.l_linger = 30;   // timeout interval in seconds
     //if (setsockopt(listen_sock, SOL_SOCKET, SO_LINGER, &sl, sizeof(sl)) < 0) {
     //    ESP_LOGE(TAG, "setsockopt(SO_LINGER) failed");
     //    goto close_socket;
@@ -61,7 +136,8 @@ void tcp_server_ip4_task(void *pvParameters) {
         goto close_socket;
     }*/
 
-    if (bind(listener, (struct sockaddr *)&destAddr, sizeof(destAddr)) != 0) {
+    if (bind(listener, &(cfg.addr.sa), cfg.addr_len) != 0) {
+        MODBUS_LOGE("Unable to bind the socket");
         goto close_socket;
     }
 
@@ -80,38 +156,33 @@ void tcp_server_ip4_task(void *pvParameters) {
     while (1) {
         read_fds = master;
         if(select(fdmax+1, &read_fds, NULL, NULL, NULL) == -1) {
-            MODBUS_LOGE(TAG, "Server-select() error lol!");
+            MODBUS_LOGE("Server-select() error lol!");
             break;
         }
-        MODBUS_LOGI("Server-select() is OK...");
+        // MODBUS_LOGD("Server-select() is OK...");
 
         // run through the existing connections looking for data to be read
         for(int i = 0; i <= fdmax; i++) {
             if(FD_ISSET(i, &read_fds)) {
                 if(i == listener) {
                     // handle new connections
-                    struct sockaddr_in clientAddr;
-                    socklen_t clientAddrLen = sizeof(struct sockaddr_in);
-                    int newfd = accept(listener, (struct sockaddr *)&clientAddr, &clientAddrLen);
+                    int newfd = accept(listener, NULL, 0);
                     if(newfd == -1) {
                         MODBUS_LOGE("Server-accept() error lol!");
                     } else {
-                        MODBUS_LOGI("Server-accept() is OK...");
                         FD_SET(newfd, &master); // add to master set
                         if(newfd > fdmax) {
                             // keep track of the maximum
                             fdmax = newfd;
                         }
-                        char addr_str[32];
-                        inet_ntoa_r(clientAddr.sin_addr.s_addr, addr_str, sizeof(addr_str) - 1);
-                        MODBUS_LOGI("New connection from %s %x on socket %d", addr_str, clientAddr.sin_addr.s_addr, newfd);
+                        cfg.tcp_server_new_conn(&cfg, newfd);
                     }
                 } else { // if(i == listener) {
-                    char buf[128];
+                    char buf[16];
                     ssize_t nbytes = recv(i, buf, sizeof(buf), 0);
                     if (nbytes == 0) {
                         // Connection closed
-                        MODBUS_LOGI("Socket %d hung up\n", i);
+                        cfg.tcp_server_conn_down(&cfg, i);
                         close(i);
                         FD_CLR(i, &master);
                     } else if (nbytes < 0) {
@@ -120,9 +191,8 @@ void tcp_server_ip4_task(void *pvParameters) {
                         close(i);
                         FD_CLR(i, &master);
                     } else {
-                        // Echo back
-                        if(send(i, buf, nbytes, 0) == -1)
-                            MODBUS_LOGE("send() error lol!");
+                        // Data arrived
+                        tcp_server_data_arrive(&cfg, i, buf, nbytes);
                     }
                 }
             }
@@ -138,103 +208,15 @@ close_socket:
     vTaskDelete(NULL);
 }
 
-void tcp_server_ip6_task(void *pvParameters) {
-    struct sockaddr_in6 destAddr;
-    bzero(&destAddr.sin6_addr.un, sizeof(destAddr.sin6_addr.un));
-    destAddr.sin6_family = AF_INET6;
-    destAddr.sin6_port = htons(MODBUS_PORT);
-
-    int listen_sock = socket(destAddr.sin6_family, SOCK_STREAM, IPPROTO_IPV6);
-    if (listen_sock < 0) {
-        goto close_socket;
-    }
-
-    if (bind(listen_sock, (struct sockaddr *)&destAddr, sizeof(destAddr)) != 0) {
-        goto close_socket;
-    }
-
-close_socket:
-    if (listen_sock >= 0)
-        close(listen_sock);
-    vTaskDelete(NULL);
+static void tcp_server_ip4_task(void* param) {
+    tcp_server_task(tcp_server_ip4_init);
 }
 
-/*static void tcp_server_task(void *pvParameters) {
-    char rx_buffer[128];
-    char addr_str[128];
-    int addr_family;
-    int ip_protocol;
-
-    while (1) {
-        int listen_sock = listen_ip4();
-        ESP_LOGI(TAG, "Socket binded");
-
-        int err = listen(listen_sock, 1);
-        if (err != 0) {
-            ESP_LOGE(TAG, "Error occured during listen: errno %d", errno);
-            break;
-        }
-        ESP_LOGI(TAG, "Socket listening");
-
-#ifdef CONFIG_EXAMPLE_IPV6
-        struct sockaddr_in6 sourceAddr; // Large enough for both IPv4 or IPv6
-#else
-        struct sockaddr_in sourceAddr;
-#endif
-        uint addrLen = sizeof(sourceAddr);
-        int sock = accept(listen_sock, (struct sockaddr *)&sourceAddr, &addrLen);
-        if (sock < 0) {
-            ESP_LOGE(TAG, "Unable to accept connection: errno %d", errno);
-            break;
-        }
-        ESP_LOGI(TAG, "Socket accepted");
-
-        while (1) {
-            int len = recv(sock, rx_buffer, sizeof(rx_buffer) - 1, 0);
-            // Error occured during receiving
-            if (len < 0) {
-                ESP_LOGE(TAG, "recv failed: errno %d", errno);
-                break;
-            }
-            // Connection closed
-            else if (len == 0) {
-                ESP_LOGI(TAG, "Connection closed");
-                break;
-            }
-            // Data received
-            else {
-#ifdef CONFIG_EXAMPLE_IPV6
-                // Get the sender's ip address as string
-                if (sourceAddr.sin6_family == PF_INET) {
-                    inet_ntoa_r(((struct sockaddr_in *)&sourceAddr)->sin_addr.s_addr, addr_str, sizeof(addr_str) - 1);
-                } else if (sourceAddr.sin6_family == PF_INET6) {
-                    inet6_ntoa_r(sourceAddr.sin6_addr, addr_str, sizeof(addr_str) - 1);
-                }
-#else
-                inet_ntoa_r(((struct sockaddr_in *)&sourceAddr)->sin_addr.s_addr, addr_str, sizeof(addr_str) - 1);
-#endif
-
-                rx_buffer[len] = 0; // Null-terminate whatever we received and treat like a string
-                ESP_LOGI(TAG, "Received %d bytes from %s:", len, addr_str);
-                ESP_LOGI(TAG, "%s", rx_buffer);
-
-                int err = send(sock, rx_buffer, len, 0);
-                if (err < 0) {
-                    ESP_LOGE(TAG, "Error occured during sending: errno %d", errno);
-                    break;
-                }
-            }
-        }
-
-        if (sock != -1) {
-            ESP_LOGE(TAG, "Shutting down socket and restarting...");
-            shutdown(sock, 0);
-            close(sock);
-        }
-    }
-    vTaskDelete(NULL);
-}*/
+static void tcp_server_ip6_task(void* param) {
+    tcp_server_task(tcp_server_ip6_init);
+}
 
 void modbus_tcp_server_create() {
-    xTaskCreate(tcp_server_ip4_task, "tcp_server_ip4", 4096, NULL, 5, NULL);
+    xTaskCreate(tcp_server_ip4_task, "tcp_server_ip4", 2048, NULL, 5, NULL);
+    xTaskCreate(tcp_server_ip6_task, "tcp_server_ip6", 2048, NULL, 5, NULL);
 }
