@@ -20,6 +20,7 @@
 #include "lwip/sys.h"
 
 #include "main.h"
+#include "modbus.h"
 
 #define EXAMPLE_ESP_WIFI_SSID      "Modbus RTU2TCP Init Setup"
 #define EXAMPLE_ESP_WIFI_PASS      "mypassword"
@@ -36,6 +37,12 @@ static const char* hostname = "modbus_rtu2tcp";
 static EventGroupHandle_t s_connect_event_group;
 static ip4_addr_t s_ipv4_addr;
 static ip6_addr_t s_ipv6_addr;
+
+static void network_ready(void) {
+    // Webserver
+    ESP_ERROR_CHECK(start_webserver());
+    modbus_tcp_server_create();
+}
 
 static void initialise_mdns(void) {
     //initialize mDNS
@@ -108,15 +115,11 @@ static void wifi_event_handler(void* arg, esp_event_base_t event_base,
 		memcpy(&s_ipv4_addr, &info.ip, sizeof(s_ipv4_addr));
 		xEventGroupSetBits(s_connect_event_group, GOT_IPV4_BIT);
 
-		// Webserver
-		extern esp_err_t  start_webserver(void);
-		ESP_ERROR_CHECK(start_webserver());
+		network_ready();
     } else if (event_id == WIFI_EVENT_STA_CONNECTED) {
         tcpip_adapter_create_ip6_linklocal(TCPIP_ADAPTER_IF_STA);
 
-        // Webserver
-        extern esp_err_t  start_webserver(void);
-        ESP_ERROR_CHECK(start_webserver());
+        network_ready();
     }
 }
 
@@ -190,7 +193,6 @@ void app_main() {
     xEventGroupWaitBits(s_connect_event_group, CONNECTED_BITS, pdTRUE, pdTRUE, portMAX_DELAY);
     ESP_LOGI(TAG, "IPv4 address: " IPSTR, IP2STR(&s_ipv4_addr));
     ESP_LOGI(TAG, "IPv6 address: " IPV6STR, IPV62STR(s_ipv6_addr));
-    modbus_tcp_server_create();
     /* Print chip information
     esp_chip_info_t chip_info;
     esp_chip_info(&chip_info);

@@ -1,4 +1,3 @@
-
 #include <string.h>
 #include <sys/param.h>
 
@@ -15,8 +14,7 @@
 #include <lwip/netdb.h>
 
 #include "main.h"
-
-#define MODBUS_PORT 502
+#include "modbus.h"
 
 typedef struct tcp_server_config tcp_server_config_t;
 typedef void (*tcp_server_init_tm) (tcp_server_config_t*);
