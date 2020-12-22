@@ -20,6 +20,8 @@
 esp_err_t cp_get_wifi_params(char ssid[WIFI_SSID_MAXLEN], char pass[WIFI_PASS_MAXLEN]);
 esp_err_t cp_set_wifi_params(const char* ssid, const char* pass);
 
+void modbus_tcp_server_create();
+
 esp_err_t start_webserver(void);
 void stop_webserver(void);
 
