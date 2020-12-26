@@ -193,6 +193,8 @@ void app_main() {
     xEventGroupWaitBits(s_connect_event_group, CONNECTED_BITS, pdTRUE, pdTRUE, portMAX_DELAY);
     ESP_LOGI(TAG, "IPv4 address: " IPSTR, IP2STR(&s_ipv4_addr));
     ESP_LOGI(TAG, "IPv6 address: " IPV6STR, IPV62STR(s_ipv6_addr));
+
+    modbus_uart_init();
     /* Print chip information
     esp_chip_info_t chip_info;
     esp_chip_info(&chip_info);

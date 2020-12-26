@@ -15,4 +15,6 @@ typedef struct mbap_header {
     uint8_t uid;
 } mbap_header_t;
 
+void modbus_uart_init();
+
 #endif /* MAIN_MODBUS_H_ */
