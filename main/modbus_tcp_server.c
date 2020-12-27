@@ -16,6 +16,11 @@
 #include "main.h"
 #include "modbus.h"
 
+// Edison is missing this from netinet/tcp.h, but this code still works if we manually define it.
+#ifndef SOL_TCP
+#define SOL_TCP 6
+#endif
+
 typedef struct tcp_server_config tcp_server_config_t;
 typedef void (*tcp_server_init_tm) (tcp_server_config_t*);
 typedef void (*tcp_server_new_conn_tm)(const tcp_server_config_t*, int); // this, clientSocket
@@ -38,10 +43,10 @@ struct tcp_server_config {
 #define MODBUS_LOGE(...) ESP_LOGE(pcTaskGetName(NULL), ##__VA_ARGS__)
 #define MODBUS_LOGI(...) ESP_LOGI(pcTaskGetName(NULL), ##__VA_ARGS__)
 
-static void tcp_server_data_arrive(const tcp_server_config_t* cfg, int clientSocket, char* buf, ssize_t len) {
+static void tcp_server_data_arrive(const tcp_server_config_t* cfg, int clientSocket, const char* buf, ssize_t len) {
     // Echo back
-    if(send(clientSocket, buf, len, 0) == -1)
-        MODBUS_LOGE("send() error lol!");
+    // if(send(clientSocket, buf, len, 0) == -1)
+        // MODBUS_LOGE("send() error lol!");
 
     MODBUS_LOGI("Receive bytes (%d):", len);
     for (ssize_t i=0; i<len; i++)
@@ -94,6 +99,35 @@ static void tcp_server_ip6_init(tcp_server_config_t* cfg) {
     cfg->tcp_server_conn_down = tcp_server_conn_down;
 }
 
+static int tcp_server_enable_keepalive(int socket) {
+    int keepalive = 1;      // Enable KEEPALIVE
+    int keepidle = 5;       // Start probing if being idle longer than "keepidle" seconds
+    int keepinterval = 5;   // The interval between probing packets, in seconds
+    int keepcount = 2;      // Number of retry before giving up
+
+    if (setsockopt(socket, SOL_SOCKET, SO_KEEPALIVE, &keepalive, sizeof(keepalive)) < 0) {
+        MODBUS_LOGE("setsockopt(SO_KEEPALIVE) failed");
+        return -1;
+    }
+
+    if (setsockopt(socket, SOL_TCP, TCP_KEEPIDLE, &keepidle, sizeof(keepidle)) < 0) {
+        MODBUS_LOGE("setsockopt(TCP_KEEPIDLE) failed");
+        return -2;
+    }
+
+    if (setsockopt(socket, SOL_TCP, TCP_KEEPCNT, &keepcount , sizeof(keepcount)) < 0) {
+        MODBUS_LOGE("setsockopt(TCP_KEEPCNT) failed");
+        return -3;
+    }
+
+    if (setsockopt(socket, SOL_TCP, TCP_KEEPINTVL, &keepinterval, sizeof(keepinterval)) < 0) {
+        MODBUS_LOGE("setsockopt(TCP_KEEPINTVL) failed");
+        return -4;
+    }
+
+    return 0;
+}
+
 // For both IPv4 and IPv6
 static void tcp_server_task(void *pvParameters) {
     tcp_server_config_t cfg;
@@ -109,6 +143,10 @@ static void tcp_server_task(void *pvParameters) {
     int enable = 1;
     if (setsockopt(listener, SOL_SOCKET, SO_REUSEADDR, &enable, sizeof(int)) < 0) {
         MODBUS_LOGE("setsockopt(SO_REUSEADDR) failed");
+        goto close_socket;
+    }
+
+    if (tcp_server_enable_keepalive(listener) < 0) {
         goto close_socket;
     }
 
@@ -157,7 +195,6 @@ static void tcp_server_task(void *pvParameters) {
             MODBUS_LOGE("Server-select() error lol!");
             break;
         }
-        // MODBUS_LOGD("Server-select() is OK...");
 
         // run through the existing connections looking for data to be read
         for(int i = 0; i <= fdmax; i++) {
@@ -173,6 +210,7 @@ static void tcp_server_task(void *pvParameters) {
                             // keep track of the maximum
                             fdmax = newfd;
                         }
+                        tcp_server_enable_keepalive(newfd);
                         cfg.tcp_server_new_conn(&cfg, newfd);
                     }
                 } else { // if(i == listener) {
@@ -186,6 +224,7 @@ static void tcp_server_task(void *pvParameters) {
                     } else if (nbytes < 0) {
                         // Error
                         MODBUS_LOGE("recv() error lol [%d]!", nbytes);
+                        cfg.tcp_server_conn_down(&cfg, i);
                         close(i);
                         FD_CLR(i, &master);
                     } else {
