@@ -13,6 +13,7 @@
 #include "lwip/sys.h"
 #include <lwip/netdb.h>
 
+#include "modbus_tcp_server.h"
 #include "main.h"
 #include "modbus.h"
 
@@ -46,19 +47,14 @@ struct tcp_server_config {
 /////////////////////////////////////////////////////////////////////////////////////////////////
 /// A double linked-list for client rx buffers, sorted by the socket number in ascending order.
 /////////////////////////////////////////////////////////////////////////////////////////////////
-#define TCP_SERVER_CLIENT_RX_BUF 512
-
 typedef struct tcp_server_client_info_node tcp_server_client_info_node_t;
-typedef struct tcp_server_client_info_node {
+struct tcp_server_client_info_node {
     tcp_server_client_info_node_t* prev;
     tcp_server_client_info_node_t* next;
 
     int socket;
-
-    uint8_t rx_buffer[TCP_SERVER_CLIENT_RX_BUF];
-    uint8_t rx_buffer_len;
-    uint8_t data_ready;
-} ;
+    tcp_server_client_state_t state;
+};
 
 typedef struct tcp_server_client_info_list {
     tcp_server_client_info_node_t* first;
@@ -189,16 +185,6 @@ static void cil_free(tcp_server_client_info_list_t* list) {
 /////////////////////////////////////////////////////////////////////////////////////////////////
 /// TCP Server
 /////////////////////////////////////////////////////////////////////////////////////////////////
-static void tcp_server_data_arrive(const tcp_server_config_t* cfg, tcp_server_client_info_node_t* client, const char* buf, ssize_t len) {
-    // Echo back
-    // if(send(clientSocket, buf, len, 0) == -1)
-        // TCPSVR_LOGE("send() error lol!");
-
-    TCPSVR_LOGI("Receive bytes (%d):", len);
-    for (ssize_t i=0; i<len; i++)
-        TCPSVR_LOGI("0x%02X", buf[i]);
-}
-
 static void tcp_server_ip4_new_conn(const tcp_server_config_t* cfg, int clientSocket) {
     struct sockaddr_in clientAddr;
     socklen_t addrLen = sizeof(struct sockaddr_in);
@@ -376,7 +362,7 @@ static void tcp_server_task(void *pvParameters) {
                 ssize_t nbytes = recv(client_node->socket, buf, sizeof(buf), 0);
                 if (nbytes > 0) {
                     // Data arrived
-                    tcp_server_data_arrive(&cfg, client_node, buf, nbytes);
+                    tcp_server_data_arrive(client_node->socket, &(client_node->state), buf, nbytes);
                 } else {
                     // Connection closed (==0) or on error (<0)
                     if (nbytes < 0) {
