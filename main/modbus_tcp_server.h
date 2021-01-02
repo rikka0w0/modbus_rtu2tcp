@@ -5,10 +5,13 @@
 #include <strings.h>
 #include "lwip/sys.h"
 
-#define TCP_SERVER_CLIENT_RX_BUF 16
+#define TCP_SERVER_RXBUF_FULL_RETRY_SEC     1
+#define TCP_SERVER_RXBUF_FULL_RETRY_USEC    0
+
+#define TCP_SERVER_RXBUF_MAXLEN 16
 typedef struct tcp_server_client_state {
     // Cyclic buffer
-    uint8_t rx_buffer[TCP_SERVER_CLIENT_RX_BUF];
+    uint8_t rx_buffer[TCP_SERVER_RXBUF_MAXLEN];
     size_t rx_buffer_head;  // Index of the first data byte
     size_t rx_buffer_tail;  // Index of the first free byte
 } tcp_server_client_state_t;
@@ -34,9 +37,11 @@ void tcp_server_client_state_init(tcp_server_client_state_t* client_state);
 // Cyclic buffer: return the length of the next available memory space in the buffer, *buf_addr is the starting address of that memory space.
 size_t tcp_server_client_get_recv_buffer_vacancy(tcp_server_client_state_t* client_state, void** buf_addr);
 
-// Called if recv()>0, process framing here.
+// Called if recv()>0.
 // Linear buffer: copy the data from the buffer into other queue.
 // Cyclic buffer: The data has been placed into the cyclic buffer, update head and tail pointers.
-void tcp_server_data_arrive(int client_socket, tcp_server_client_state_t* client_state, const void* buf, ssize_t len);
+void tcp_server_recv_success(tcp_server_client_state_t* client_state, const void* buf, ssize_t len);
+
+void tcp_server_framer_run(tcp_server_client_state_t* client_state, int client_socket);
 
 #endif

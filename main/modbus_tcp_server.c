@@ -54,6 +54,7 @@ struct tcp_server_client_info_node {
 
     int socket;
     tcp_server_client_state_t state;
+    int skip_next_select;
 };
 
 typedef struct tcp_server_client_info_list {
@@ -130,6 +131,7 @@ static tcp_server_client_info_node_t* cil_register_client(tcp_server_client_info
     tcp_server_client_info_node_t* node = malloc(sizeof(tcp_server_client_info_node_t));
     node->socket = socket;
     tcp_server_client_state_init(&(node->state));
+    node->skip_next_select = 0;
 
     if (list->last == NULL) {
         // List is empty
@@ -319,18 +321,36 @@ static void tcp_server_task(void *pvParameters) {
     }
     TCPSVR_LOGI("Socket listening");
 
-    fd_set master, read_fds;
-    FD_ZERO(&master);
-    FD_SET(listener, &master);
-    FD_ZERO(&read_fds);
-
     while (1) {
-        read_fds = master;
+        tcp_server_client_info_node_t* client_node;
+        tcp_server_client_info_list_iterator_t iterator;
+
+        // Determine the set of sockets for monitoring
+        fd_set read_fds;
+        FD_ZERO(&read_fds);
+        FD_SET(listener, &read_fds);    // Always watch the listener socket
+        cil_iterator_init(&client_list, &iterator);
+        while (cil_iterator_step(&iterator, &client_node)) {
+            if (client_node->skip_next_select) {
+                client_node->skip_next_select = 0;
+            } else {
+                FD_SET(client_node->socket, &read_fds);
+            }
+        }
+
+        struct timeval timeout_val;
+        timeout_val.tv_sec = TCP_SERVER_RXBUF_FULL_RETRY_SEC;
+        timeout_val.tv_usec = TCP_SERVER_RXBUF_FULL_RETRY_USEC;
         int fdmax = cil_max_socket(&client_list);
         fdmax = fdmax>listener ? fdmax : listener;
-        if(select(fdmax+1, &read_fds, NULL, NULL, NULL) == -1) {
+        // Re-use fdmax for the return value of select()
+        fdmax = select(fdmax+1, &read_fds, NULL, NULL, &timeout_val);
+        if (fdmax == -1) {
             TCPSVR_LOGE("Server-select() error lol!");
             break;
+        } else if (fdmax == 0) {
+            // Timeout, nothing happened
+            continue;
         }
 
         // We have some events to process or something to read
@@ -344,7 +364,6 @@ static void tcp_server_task(void *pvParameters) {
                 TCPSVR_LOGE("Too many connections!");
                 close(newfd);
             } else {
-                FD_SET(newfd, &master); // add to master set
                 tcp_server_enable_keepalive(newfd);
                 cil_register_client(&client_list, newfd);
                 if (cfg.tcp_server_new_conn != NULL) {
@@ -354,33 +373,35 @@ static void tcp_server_task(void *pvParameters) {
         }
 
         // Check if any data is available to read (clients)
-        tcp_server_client_info_node_t* client_node;
-        tcp_server_client_info_list_iterator_t iterator;
         cil_iterator_init(&client_list, &iterator);
         while (cil_iterator_step(&iterator, &client_node)) {
             if(FD_ISSET(client_node->socket, &read_fds)) {
                 void* buf;
                 size_t max_len = tcp_server_client_get_recv_buffer_vacancy(&(client_node->state), &buf);
                 if (max_len == 0) {
+                    // Buffer is full
                     ESP_LOGE("Cyka", "Cyc buf is full!");
-                }
-                ssize_t nbytes = recv(client_node->socket, buf, max_len, 0);
-                if (nbytes > 0) {
-                    // Data arrived
-                    tcp_server_data_arrive(client_node->socket, &(client_node->state), buf, nbytes);
+                    client_node->skip_next_select = 1;
+                    tcp_server_framer_run(&(client_node->state), client_node->socket);
                 } else {
-                    // Connection closed (==0) or on error (<0)
-                    if (nbytes < 0) {
-                        TCPSVR_LOGE("recv() error lol [%d]!", nbytes);
+                    ssize_t nbytes = recv(client_node->socket, buf, max_len, 0);
+                    if (nbytes > 0) {
+                        // Data arrived
+                        tcp_server_recv_success(&(client_node->state), buf, nbytes);
+                        tcp_server_framer_run(&(client_node->state), client_node->socket);
+                    } else {
+                        // Connection closed (==0) or on error (<0)
+                        if (nbytes < 0) {
+                            TCPSVR_LOGE("recv() error lol [%d]!", nbytes);
+                        }
+                        if (cfg.tcp_server_conn_down != NULL) {
+                            cfg.tcp_server_conn_down(&cfg, client_node->socket);
+                        }
+                        cil_iterator_remove_current(&iterator);
+                        close(client_node->socket);
                     }
-                    if (cfg.tcp_server_conn_down != NULL) {
-                        cfg.tcp_server_conn_down(&cfg, client_node->socket);
-                    }
-                    cil_iterator_remove_current(&iterator);
-                    close(client_node->socket);
-                    FD_CLR(client_node->socket, &master);
-                }
-            }
+                } // if (max_len == 0) {
+            } // if(FD_ISSET(client_node->socket, &read_fds)) {
         }
     }
 

@@ -7,7 +7,7 @@ size_t tcp_server_client_buffer_query(tcp_server_client_state_t* client_state, u
     if (client_state->rx_buffer_tail >= client_state->rx_buffer_head) {
         maxlen = client_state->rx_buffer_tail - client_state->rx_buffer_head;
     } else {
-        maxlen = TCP_SERVER_CLIENT_RX_BUF - client_state->rx_buffer_head;
+        maxlen = TCP_SERVER_RXBUF_MAXLEN - client_state->rx_buffer_head;
         maxlen += client_state->rx_buffer_tail;
     }
 
@@ -19,7 +19,7 @@ size_t tcp_server_client_buffer_query(tcp_server_client_state_t* client_state, u
         for (size_t i=client_state->rx_buffer_head; i<client_state->rx_buffer_tail && buf_idx < buflen; i++)
             buf[buf_idx++] = client_state->rx_buffer[i];
     } else {
-        for (size_t i=client_state->rx_buffer_head; i<TCP_SERVER_CLIENT_RX_BUF && buf_idx < buflen; i++)
+        for (size_t i=client_state->rx_buffer_head; i<TCP_SERVER_RXBUF_MAXLEN && buf_idx < buflen; i++)
             buf[buf_idx++] = client_state->rx_buffer[i];
         // Wrap around
         for (size_t i=0; i<client_state->rx_buffer_tail && buf_idx < buflen; i++)
@@ -33,8 +33,8 @@ size_t tcp_server_client_buffer_pop(tcp_server_client_state_t* client_state, siz
     size_t maxlen = tcp_server_client_buffer_query(client_state, NULL, 0);
     len = len > maxlen ? maxlen : len;
     client_state->rx_buffer_head += len;
-    if (client_state->rx_buffer_head >= TCP_SERVER_CLIENT_RX_BUF)
-        client_state->rx_buffer_head -= TCP_SERVER_CLIENT_RX_BUF;
+    if (client_state->rx_buffer_head >= TCP_SERVER_RXBUF_MAXLEN)
+        client_state->rx_buffer_head -= TCP_SERVER_RXBUF_MAXLEN;
     return len;
 }
 
@@ -44,7 +44,7 @@ void tcp_server_client_state_init(tcp_server_client_state_t* client_state) {
 }
 
 size_t tcp_server_client_get_recv_buffer_vacancy(tcp_server_client_state_t* client_state, void** buf_addr) {
-    if (client_state->rx_buffer_tail == TCP_SERVER_CLIENT_RX_BUF - 1) {
+    if (client_state->rx_buffer_tail == TCP_SERVER_RXBUF_MAXLEN - 1) {
         if (client_state->rx_buffer_head == 0) {
             *buf_addr = NULL;
             return 0;
@@ -55,10 +55,10 @@ size_t tcp_server_client_get_recv_buffer_vacancy(tcp_server_client_state_t* clie
     } if (client_state->rx_buffer_tail >= client_state->rx_buffer_head) {
         if (client_state->rx_buffer_head == 0) {
             *buf_addr = &(client_state->rx_buffer[client_state->rx_buffer_tail]);
-            return TCP_SERVER_CLIENT_RX_BUF - client_state->rx_buffer_tail - 1;
+            return TCP_SERVER_RXBUF_MAXLEN - client_state->rx_buffer_tail - 1;
         } else {
             *buf_addr = &(client_state->rx_buffer[client_state->rx_buffer_tail]);
-            return TCP_SERVER_CLIENT_RX_BUF - client_state->rx_buffer_tail;
+            return TCP_SERVER_RXBUF_MAXLEN - client_state->rx_buffer_tail;
         }
     } else { // Wrap around
         if (client_state->rx_buffer_tail == client_state->rx_buffer_head - 1) {
@@ -71,13 +71,16 @@ size_t tcp_server_client_get_recv_buffer_vacancy(tcp_server_client_state_t* clie
     }
 }
 
-void tcp_server_data_arrive(int client_socket, tcp_server_client_state_t* client_state, const void* buf, ssize_t len) {
+void tcp_server_recv_success(tcp_server_client_state_t* client_state, const void* buf, ssize_t len) {
     // Since we supplied the next continuance memory region of the cyclic buffer in tcp_server_client_get_recv_buffer_vacancy(),
     // Some data are moved into the buffer, but we still need to update the tail pointer
     client_state->rx_buffer_tail += len;
-    if (client_state->rx_buffer_tail >= TCP_SERVER_CLIENT_RX_BUF)
-        client_state->rx_buffer_tail -= TCP_SERVER_CLIENT_RX_BUF;
+    if (client_state->rx_buffer_tail >= TCP_SERVER_RXBUF_MAXLEN)
+        client_state->rx_buffer_tail -= TCP_SERVER_RXBUF_MAXLEN;
+}
 
+void tcp_server_framer_run(tcp_server_client_state_t* client_state, int client_socket) {
+    // For test only
     if (tcp_server_client_buffer_query(client_state, NULL, 0) < 5)
         return;
 
@@ -87,15 +90,22 @@ void tcp_server_data_arrive(int client_socket, tcp_server_client_state_t* client
         for (size_t i=client_state->rx_buffer_head; i<client_state->rx_buffer_tail; i++)
             ESP_LOGI("TCP_RX", "[%d] %c", client_socket, client_state->rx_buffer[i]);
     } else {
-        for (size_t i=client_state->rx_buffer_head; i<TCP_SERVER_CLIENT_RX_BUF; i++)
+        for (size_t i=client_state->rx_buffer_head; i<TCP_SERVER_RXBUF_MAXLEN; i++)
             ESP_LOGI("TCP_RX", "[%d] %c", client_socket, client_state->rx_buffer[i]);
         ESP_LOGI("TCP_RX", "Wrap around");
         for (size_t i=0; i<client_state->rx_buffer_tail; i++)
             ESP_LOGI("TCP_RX", "[%d] %c", client_socket, client_state->rx_buffer[i]);
     }
-    client_state->rx_buffer_head = client_state->rx_buffer_tail;
+    //client_state->rx_buffer_head = client_state->rx_buffer_tail;
     ESP_LOGI("TCP_RX", "EOP [%d - %d]", client_state->rx_buffer_head, client_state->rx_buffer_tail);
 
+    static int cnt = 0;
+    if (cnt>3) {
+        client_state->rx_buffer_head = client_state->rx_buffer_tail;
+    }
+    if (tcp_server_client_buffer_query(client_state, NULL, 0) == TCP_SERVER_RXBUF_MAXLEN - 1) {
+        cnt++;
+    }
 
     // Echo back
     // if(send(clientSocket, buf, len, 0) == -1)
