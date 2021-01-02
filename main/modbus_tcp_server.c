@@ -129,6 +129,7 @@ static void cil_init(tcp_server_client_info_list_t* list) {
 static tcp_server_client_info_node_t* cil_register_client(tcp_server_client_info_list_t* list, int socket) {
     tcp_server_client_info_node_t* node = malloc(sizeof(tcp_server_client_info_node_t));
     node->socket = socket;
+    tcp_server_client_state_init(&(node->state));
 
     if (list->last == NULL) {
         // List is empty
@@ -358,8 +359,12 @@ static void tcp_server_task(void *pvParameters) {
         cil_iterator_init(&client_list, &iterator);
         while (cil_iterator_step(&iterator, &client_node)) {
             if(FD_ISSET(client_node->socket, &read_fds)) {
-                char buf[16];
-                ssize_t nbytes = recv(client_node->socket, buf, sizeof(buf), 0);
+                void* buf;
+                size_t max_len = tcp_server_client_get_recv_buffer_vacancy(&(client_node->state), &buf);
+                if (max_len == 0) {
+                    ESP_LOGE("Cyka", "Cyc buf is full!");
+                }
+                ssize_t nbytes = recv(client_node->socket, buf, max_len, 0);
                 if (nbytes > 0) {
                     // Data arrived
                     tcp_server_data_arrive(client_node->socket, &(client_node->state), buf, nbytes);
