@@ -3,6 +3,7 @@
 
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
+#include "freertos/timers.h"
 #include "esp_system.h"
 #include "esp_log.h"
 #include "esp_netif.h"
@@ -22,8 +23,15 @@
 #define SOL_TCP 6
 #endif
 
+#ifdef TCP_SERVER_DEBUG
 #define TCPSVR_LOGE(...) ESP_LOGE(pcTaskGetName(NULL), ##__VA_ARGS__)
+#define TCPSVR_LOGW(...) ESP_LOGW(pcTaskGetName(NULL), ##__VA_ARGS__)
 #define TCPSVR_LOGI(...) ESP_LOGI(pcTaskGetName(NULL), ##__VA_ARGS__)
+#else
+#define TCPSVR_LOGE(...)
+#define TCPSVR_LOGW(...)
+#define TCPSVR_LOGI(...)
+#endif
 
 typedef struct tcp_server_config tcp_server_config_t;
 typedef void (*tcp_server_init_tm) (tcp_server_config_t*);
@@ -54,7 +62,9 @@ struct tcp_server_client_info_node {
 
     int socket;
     tcp_server_client_state_t state;
-    int skip_next_select;
+    uint8_t skip_next_select;
+    TimerHandle_t  buf_full_expire_timer;
+    TimerHandle_t  frame_pending_expire_timer;
 };
 
 typedef struct tcp_server_client_info_list {
@@ -115,8 +125,11 @@ static void cil_iterator_remove_current(tcp_server_client_info_list_iterator_t* 
     }
 
     iterator->list->count--;
-    free(removed);
 
+    // Release resources
+    xTimerDelete(removed->buf_full_expire_timer, 0);
+    xTimerDelete(removed->frame_pending_expire_timer, 0);
+    free(removed);
     iterator->cur_removed = 1;
 }
 
@@ -126,12 +139,21 @@ static void cil_init(tcp_server_client_info_list_t* list) {
     list->last = NULL;
 }
 
+static void tcp_server_client_timer_expire(TimerHandle_t xTimer) {
+    vTimerSetTimerID(xTimer, (void*)1);
+    xTimerStop(xTimer, 0);
+}
+
 // Called when a client connection is established, store the socket file descriptor and allocate frame buffer.
 static tcp_server_client_info_node_t* cil_register_client(tcp_server_client_info_list_t* list, int socket) {
     tcp_server_client_info_node_t* node = malloc(sizeof(tcp_server_client_info_node_t));
     node->socket = socket;
     tcp_server_client_state_init(&(node->state));
     node->skip_next_select = 0;
+    node->buf_full_expire_timer =
+            xTimerCreate("buf_exp", pdMS_TO_TICKS(TCP_SERVER_RXBUF_FULL_MAX_MSEC), pdFALSE, (void*)0, tcp_server_client_timer_expire);
+    node->frame_pending_expire_timer =
+            xTimerCreate("frm_exp", pdMS_TO_TICKS(TCP_SERVER_FRAME_PENDING_MAX_MSEC), pdFALSE, (void*)0, tcp_server_client_timer_expire);
 
     if (list->last == NULL) {
         // List is empty
@@ -177,11 +199,10 @@ static inline int cil_max_socket(tcp_server_client_info_list_t* list) {
 }
 
 static void cil_free(tcp_server_client_info_list_t* list) {
-    tcp_server_client_info_node_t* node = list->first;
-    while (node != NULL) {
-        tcp_server_client_info_node_t* next = node->next;
-        free(node);
-        node = next;
+    tcp_server_client_info_node_t* client_node;
+    tcp_server_client_info_list_iterator_t iterator;
+    while (cil_iterator_step(&iterator, &client_node)) {
+        cil_iterator_remove_current(&iterator);
     }
 }
 
@@ -261,6 +282,32 @@ static int tcp_server_enable_keepalive(int socket) {
     }
 
     return 0;
+}
+
+static void tcp_server_exec_framer(tcp_server_client_info_node_t* client_node) {
+    if (tcp_server_framer_run(&(client_node->state), client_node->socket)) {
+        if (!xTimerIsTimerActive(client_node->frame_pending_expire_timer)) {
+            xTimerReset(client_node->frame_pending_expire_timer, 0);
+        }
+    } else {
+        if (xTimerIsTimerActive(client_node->frame_pending_expire_timer)) {
+            xTimerStop(client_node->frame_pending_expire_timer, 0);
+        }
+    }
+}
+
+static void tcp_server_check_client_rxbuf_vacancy(tcp_server_client_info_node_t* client_node) {
+    if (tcp_server_client_get_recv_buffer_vacancy(&(client_node->state), NULL) == 0) {
+        client_node->skip_next_select = 1;
+        if (!xTimerIsTimerActive(client_node->buf_full_expire_timer)) {
+            xTimerReset(client_node->buf_full_expire_timer, 0);
+        }
+    } else {
+        client_node->skip_next_select = 0;
+        if (xTimerIsTimerActive(client_node->buf_full_expire_timer)) {
+            xTimerStop(client_node->buf_full_expire_timer, 0);
+        }
+    }
 }
 
 // For both IPv4 and IPv6
@@ -348,7 +395,36 @@ static void tcp_server_task(void *pvParameters) {
         if (fdmax == -1) {
             TCPSVR_LOGE("Server-select() error lol!");
             break;
-        } else if (fdmax == 0) {
+        }
+
+        cil_iterator_init(&client_list, &iterator);
+        while (cil_iterator_step(&iterator, &client_node)) {
+            if (xTimerIsTimerActive(client_node->frame_pending_expire_timer) && !FD_ISSET(listener, &read_fds)) {
+                tcp_server_exec_framer(client_node);
+                tcp_server_check_client_rxbuf_vacancy(client_node);
+                TCPSVR_LOGW("[%d] frame pending", client_node->socket);
+            }
+
+            if (    pvTimerGetTimerID(client_node->frame_pending_expire_timer) ||
+                    pvTimerGetTimerID(client_node->buf_full_expire_timer)) {
+                if (cfg.tcp_server_conn_down != NULL) {
+                    cfg.tcp_server_conn_down(&cfg, client_node->socket);
+                }
+                cil_iterator_remove_current(&iterator);
+                close(client_node->socket);
+
+#ifdef TCP_SERVER_DEBUG
+                if (pvTimerGetTimerID(client_node->frame_pending_expire_timer)) {
+                    TCPSVR_LOGE("[%d] Socket close due to frame_pending", client_node->socket);
+                }
+                if (pvTimerGetTimerID(client_node->buf_full_expire_timer)) {
+                    TCPSVR_LOGE("[%d] Socket close due to buf_full_expire_timer", client_node->socket);
+                }
+#endif
+            }
+        }
+
+        if (fdmax == 0) {
             // Timeout, nothing happened
             continue;
         }
@@ -360,9 +436,6 @@ static void tcp_server_task(void *pvParameters) {
             int newfd = accept(listener, NULL, 0);
             if(newfd == -1) {
                 TCPSVR_LOGE("Server-accept() error lol!");
-            } else if (client_list.count > 3) {
-                TCPSVR_LOGE("Too many connections!");
-                close(newfd);
             } else {
                 tcp_server_enable_keepalive(newfd);
                 cil_register_client(&client_list, newfd);
@@ -380,19 +453,19 @@ static void tcp_server_task(void *pvParameters) {
                 size_t max_len = tcp_server_client_get_recv_buffer_vacancy(&(client_node->state), &buf);
                 if (max_len == 0) {
                     // Buffer is full
-                    ESP_LOGE("Cyka", "Cyc buf is full!");
-                    client_node->skip_next_select = 1;
-                    tcp_server_framer_run(&(client_node->state), client_node->socket);
+                    TCPSVR_LOGW("[%d] Rx buffer is full", client_node->socket);
+                    tcp_server_exec_framer(client_node);
+                    tcp_server_check_client_rxbuf_vacancy(client_node);
                 } else {
                     ssize_t nbytes = recv(client_node->socket, buf, max_len, 0);
                     if (nbytes > 0) {
                         // Data arrived
                         tcp_server_recv_success(&(client_node->state), buf, nbytes);
-                        tcp_server_framer_run(&(client_node->state), client_node->socket);
+                        tcp_server_exec_framer(client_node);
                     } else {
                         // Connection closed (==0) or on error (<0)
                         if (nbytes < 0) {
-                            TCPSVR_LOGE("recv() error lol [%d]!", nbytes);
+                            TCPSVR_LOGE("[%d] recv() error: %d", client_node->socket, nbytes);
                         }
                         if (cfg.tcp_server_conn_down != NULL) {
                             cfg.tcp_server_conn_down(&cfg, client_node->socket);
@@ -406,6 +479,7 @@ static void tcp_server_task(void *pvParameters) {
     }
 
 close_socket:
+    cil_free(&client_list);
     if (listener >= 0)
         close(listener);
     TCPSVR_LOGI("TCP server closed");
