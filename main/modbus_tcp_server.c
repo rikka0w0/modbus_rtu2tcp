@@ -16,7 +16,6 @@
 
 #include "modbus_tcp_server.h"
 #include "main.h"
-#include "modbus.h"
 
 #define OSTICK_PER_US (1000000 / configTICK_RATE_HZ)
 
@@ -222,13 +221,13 @@ static void tcp_server_ip6_new_conn(const tcp_server_config_t* cfg, int clientSo
 }
 
 static void tcp_server_conn_down(const tcp_server_config_t* cfg, int clientSocket) {
-    TCPSVR_LOGI("Socket %d hung up\n", clientSocket);
+    TCPSVR_LOGI("Socket %d hung up", clientSocket);
 }
 
 static void tcp_server_ip4_init(tcp_server_config_t* cfg) {
     cfg->addr.v4.sin_addr.s_addr = htonl(INADDR_ANY);
     cfg->addr.v4.sin_family = AF_INET;
-    cfg->addr.v4.sin_port = htons(MODBUS_PORT);
+    cfg->addr.v4.sin_port = htons(TCP_SERVER_PORT);
     cfg->addr_len = sizeof(struct sockaddr_in);
     cfg->protocol = IPPROTO_IP;
 
@@ -240,7 +239,7 @@ static void tcp_server_ip4_init(tcp_server_config_t* cfg) {
 static void tcp_server_ip6_init(tcp_server_config_t* cfg) {
     bzero(&(cfg->addr.v6.sin6_addr.un), sizeof(cfg->addr.v6.sin6_addr.un));
     cfg->addr.v6.sin6_family = AF_INET6;
-    cfg->addr.v6.sin6_port = htons(MODBUS_PORT);
+    cfg->addr.v6.sin6_port = htons(TCP_SERVER_PORT);
     cfg->addr_len = sizeof(struct sockaddr_in6);
     cfg->protocol = IPPROTO_IPV6;
 
@@ -279,7 +278,7 @@ static int tcp_server_enable_keepalive(int socket) {
 }
 
 static void tcp_server_client_check_frame(tcp_server_client_info_node_t* client_node) {
-    if (tcp_server_client_frame_ready(client_node->socket, client_node->rx_buffer, client_node->frame_size)) {
+    if (tcp_server_client_frame_pop(client_node->socket, client_node->rx_buffer, client_node->frame_size)) {
         client_node->frame_ready = 0;
         client_node->frame_size = 0;
     } else if (client_node->frame_ready == 0) {
@@ -339,7 +338,7 @@ static void tcp_server_task(void *pvParameters) {
         goto close_socket;
     }
 
-    if (listen(listener, 5) != 0) {
+    if (listen(listener, TCP_SERVER_CONN_MAX) != 0) {
         TCPSVR_LOGE("Error occured during listen: errno %d", errno);
         goto close_socket;
     }
@@ -356,31 +355,6 @@ static void tcp_server_task(void *pvParameters) {
         FD_SET(listener, &read_fds);    // Always watch the listener socket
         cil_iterator_init(&client_list, &iterator);
         while (cil_iterator_step(&iterator, &client_node)) {
-            if (client_node->frame_ready) {
-                if (xTaskCheckForTimeOut(&client_node->frame_pending_expire_timeout, &client_node->frame_pending_expire_remaining) == pdTRUE) {
-                    tcp_server_client_check_frame(client_node);
-                    if (client_node->frame_ready) {
-                        // The pending frame is still in the buffer
-                        client_node->frame_ready++;
-                        if (client_node->frame_ready > 4) {
-                            // Maximum retry reached
-                            client_node->frame_ready = 0;
-                            TCPSVR_LOGE("[%d] Frame expired!", client_node->socket);
-                            if (cfg.tcp_server_conn_down != NULL) {
-                                cfg.tcp_server_conn_down(&cfg, client_node->socket);
-                            }
-                            cil_iterator_remove_current(&iterator);
-                            close(client_node->socket);
-                            continue;   // The socket has been closed, no need to check is status
-                        } else {
-                            // Reset the timeout, allow for more retries
-                            vTaskSetTimeOutState(&client_node->frame_pending_expire_timeout);
-                            client_node->frame_pending_expire_remaining = TCP_SERVER_FRAME_PENDING_MAX_TICK;
-                        }
-                    }
-                }
-            }
-
             if (client_node->frame_ready) {
                 if (client_node->frame_pending_expire_remaining < max_block_tick) {
                     max_block_tick = client_node->frame_pending_expire_remaining;
@@ -401,7 +375,39 @@ static void tcp_server_task(void *pvParameters) {
         if (fdmax == -1) {
             TCPSVR_LOGE("Server-select() error lol!");
             break;
-        } if (fdmax == 0) {
+        }
+
+        cil_iterator_init(&client_list, &iterator);
+        while (cil_iterator_step(&iterator, &client_node)) {
+            if (client_node->frame_ready) {
+                if (xTaskCheckForTimeOut(&client_node->frame_pending_expire_timeout, &client_node->frame_pending_expire_remaining) == pdTRUE) {
+                    tcp_server_client_check_frame(client_node);
+                    if (client_node->frame_ready) {
+                        // The pending frame is still in the buffer
+                        client_node->frame_ready++;
+                        if (client_node->frame_ready > TCP_SERVER_FRAME_RETRY_MAX) {
+                            // Maximum retry reached
+                            client_node->frame_ready = 0;
+                            TCPSVR_LOGE("[%d] Frame expired!", client_node->socket);
+                            if (cfg.tcp_server_conn_down != NULL) {
+                                cfg.tcp_server_conn_down(&cfg, client_node->socket);
+                            }
+                            cil_iterator_remove_current(&iterator);
+                            close(client_node->socket);
+                            continue;   // The socket has been closed, no need to check is status
+                        } else {
+                            // Reset the timeout, allow for more retries
+                            vTaskSetTimeOutState(&client_node->frame_pending_expire_timeout);
+                            client_node->frame_pending_expire_remaining = TCP_SERVER_FRAME_PENDING_MAX_TICK;
+                        }
+                    } else {
+                        portYIELD();
+                    }
+                }
+            } // if (client_node->frame_ready)
+        } // while (cil_iterator_step(&iterator, &client_node))
+
+        if (fdmax == 0) {
             // Timeout, nothing happened
             continue;
         }
@@ -450,11 +456,14 @@ static void tcp_server_task(void *pvParameters) {
                         if (client_node->rx_buffer_ptr == client_node->frame_size) {
                             client_node->rx_buffer_ptr = 0;
                             // A frame has become ready
+                            tcp_server_client_frame_ready(client_node->socket, client_node->rx_buffer, client_node->frame_size);
                             tcp_server_client_check_frame(client_node);
                             if (client_node->frame_ready) {
                                 vTaskSetTimeOutState(&client_node->frame_pending_expire_timeout);
                                 client_node->frame_pending_expire_remaining = TCP_SERVER_FRAME_PENDING_MAX_TICK;
                                 TCPSVR_LOGW("[%d] A new frame is ready but cannot be consumed immediately!", client_node->socket);
+                            } else {
+                                portYIELD();
                             }
                         } else if (client_node->rx_buffer_ptr > client_node->frame_size) {
                             TCPSVR_LOGE("[%d] client_node->rx_buffer_ptr > client_node->frame_size!", client_node->socket);
@@ -494,6 +503,6 @@ static void tcp_server_ip6_task(void* param) {
 }
 
 void modbus_tcp_server_create() {
-    xTaskCreate(tcp_server_ip4_task, "tcp_server_ip4", 2048, NULL, 5, NULL);
-    xTaskCreate(tcp_server_ip6_task, "tcp_server_ip6", 2048, NULL, 5, NULL);
+    xTaskCreate(tcp_server_ip4_task, "tcp_server_ip4", 2048, NULL, 7, NULL);
+    xTaskCreate(tcp_server_ip6_task, "tcp_server_ip6", 2048, NULL, 7, NULL);
 }

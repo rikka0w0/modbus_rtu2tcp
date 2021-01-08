@@ -2,12 +2,11 @@
 #define MAIN_MODBUS_H_
 
 #include <stdint.h>
+#include <strings.h>
 
-#include "lwip/inet.h"
-
-#define MODBUS_PORT 502
-
-void modbus_tcp_server_create();
+#define MODBUS_RTU_PDU_MAXLEN       252
+#define MODBUS_RTU_FRAME_MAXLEN     256
+#define MODBUS_RTU_TX_FIFO_LEN      (MODBUS_RTU_FRAME_MAXLEN*2)
 
 //__attribute__ ((packed))
 typedef struct mbap_header {
@@ -17,18 +16,21 @@ typedef struct mbap_header {
     uint8_t uid;
 } mbap_header_t;
 
-static inline void mbap_header_ntoh(mbap_header_t* header) {
-    header->transaction_id = ntohs(header->transaction_id);
-    header->protocol_id = ntohs(header->protocol_id);
-    header->length = ntohs(header->length);
-};
+typedef struct rtu_session {
+    int socket;
+    uint16_t transaction_id;
+    uint16_t protocol_id;
+    uint8_t uid;
+} rtu_session_t;
 
-static inline void mbap_header_hton(mbap_header_t* header) {
-    header->transaction_id = htons(header->transaction_id);
-    header->protocol_id = htons(header->protocol_id);
-    header->length = htons(header->length);
-};
+uint16_t modbus_rtu_crc16(const uint8_t *data, size_t dat_len);
+void mbap_header_ntoh(mbap_header_t* header);
+void mbap_header_hton(mbap_header_t* header);
 
 void modbus_uart_init();
+// Attempt to queue a new request to the fifo, non-blocking
+int modbus_uart_fifo_push(const rtu_session_t* session_header, const void* payload, size_t len);
+// Queue the response to the Tx FIFO of TCP, non-blocking
+void tcp_server_send_response(const rtu_session_t* session_header, const void* buf, size_t len);
 
 #endif /* MAIN_MODBUS_H_ */

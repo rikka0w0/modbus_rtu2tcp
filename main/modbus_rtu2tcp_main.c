@@ -21,6 +21,7 @@
 
 #include "main.h"
 #include "modbus.h"
+#include "modbus_tcp_server.h"
 
 #define EXAMPLE_ESP_WIFI_SSID      "Modbus RTU2TCP Init Setup"
 #define EXAMPLE_ESP_WIFI_PASS      "mypassword"
@@ -163,6 +164,8 @@ void app_main() {
 
     s_connect_event_group = xEventGroupCreate();
 
+    modbus_uart_init();
+
     char ssid[WIFI_SSID_MAXLEN], pass[WIFI_PASS_MAXLEN];
     ESP_ERROR_CHECK(cp_get_wifi_params(ssid, pass));
     if (strlen(ssid) == 0) {
@@ -194,7 +197,6 @@ void app_main() {
     ESP_LOGI(TAG, "IPv4 address: " IPSTR, IP2STR(&s_ipv4_addr));
     ESP_LOGI(TAG, "IPv6 address: " IPV6STR, IPV62STR(s_ipv6_addr));
 
-    modbus_uart_init();
     /* Print chip information
     esp_chip_info_t chip_info;
     esp_chip_info(&chip_info);

@@ -6,6 +6,7 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "freertos/semphr.h"
+#include "freertos/ringbuf.h"
 
 #include "esp8266/uart_struct.h"
 #include "esp8266/uart_register.h"
@@ -20,7 +21,7 @@
 #define UART_FULL_THRESH_DEFAULT  (120)
 #define UART_TOUT_THRESH_DEFAULT   (22)
 
-#define MODBUS_BUF_SIZE (512)
+#define MODBUS_BUF_SIZE (MODBUS_RTU_FRAME_MAXLEN)
 
 #define RX_OVFL_NONE 0
 #define RX_OVFL_BUF  1
@@ -41,8 +42,10 @@ typedef struct uart_modbus_obj {
     SemaphoreHandle_t rx_done_sem;
     uint8_t* rx_buffer;
     uint32_t rx_len;
-    uint8_t rx_data_ready;
     uint8_t rx_overflow;
+
+    RingbufHandle_t tx_fifo;
+    SemaphoreHandle_t tx_fifo_mux;
 } uart_modbus_obj_t;
 
 static uart_modbus_obj_t* p_uart_obj = {0};
@@ -75,6 +78,10 @@ static void uart_modbus_intr_handler(void *param) {
                 if (p_uart->tx_len == 0) {
                     // We have sent all data and the buffer is now completely empty
                     p_uart->tx_ptr = NULL;
+
+                    // Although we have pushed the last byte into the buffer, but the UART will take sometime to send it
+                    ets_delay_us(p_uart_obj->char_duration_us << 1);
+                    modbus_gpio_rxen_set(0);
 
                     xSemaphoreGiveFromISR(p_uart->tx_done_sem, &task_woken);
                     if (task_woken == pdTRUE)
@@ -133,7 +140,6 @@ static void uart_modbus_intr_handler(void *param) {
             if (uart_intr_status & UART_RXFIFO_TOUT_INT_ST_M) {
                 // Silent interval detected!
                 uart_disable_intr_mask(p_uart->uart_num, UART_RXFIFO_TOUT_INT_CLR_M | UART_RXFIFO_FULL_INT_CLR_M);
-                p_uart->rx_data_ready = 1;
 
                 xSemaphoreGiveFromISR(p_uart->rx_done_sem, &task_woken);
                 if (task_woken == pdTRUE)
@@ -158,36 +164,75 @@ static void uart_modbus_intr_handler(void *param) {
     } // while (uart_intr_status != 0x0);
 }
 
-void uart_modbus_tx_all() {
-    modbus_gpio_rxen_set(1);
-    ets_delay_us(p_uart_obj->char_duration_us);
-    p_uart_obj->tx_ptr = NULL;
-    p_uart_obj->tx_len = p_uart_obj->rx_len;
-    // Enter UART_TXFIFO_EMPTY_INT immediately
-    // Tx FIFO is populated by the ISR
-    uart_enable_tx_intr(p_uart_obj->uart_num, 1, UART_EMPTY_THRESH_DEFAULT);
-
-    xSemaphoreTake(p_uart_obj->tx_done_sem, portMAX_DELAY );
-    // Although we have pushed the last byte into the buffer, but the UART will take sometime to send it
-    ets_delay_us(p_uart_obj->char_duration_us << 1);
-    modbus_gpio_rxen_set(0);
+static void hexdump(int socket, void* buf, size_t len) {
+    char* mybuf = (char*) buf;
+    char strbuf[128];
+    int idx = 0;
+    for (int i=0; i<len; i++) {
+        idx += snprintf(&(strbuf[idx]), sizeof(strbuf), " %02X", mybuf[i]);
+    }
+    ESP_LOGI("MODBUS_Rx", "Rx[%d]:%s", socket, strbuf);
 }
 
-static void echo_task() {
+static void modbus_rtu_task(void* param) {
     while (1) {
-        // Read data from the UART
-        //while (!p_uart_obj->rx_data_ready) vTaskDelay(10);
-        if (xSemaphoreTake(p_uart_obj->rx_done_sem, 100) == pdTRUE) {
-            ESP_LOGI("MODBUS", "Received %d bytes, overflow state %d", p_uart_obj->rx_len, p_uart_obj->rx_overflow);
+        rtu_session_t session_header;
+        uint8_t* buf1 = NULL;
+        uint8_t* buf2 = NULL;
+        size_t buf1_len, buf2_len;
+        if (xRingbufferReceiveSplit(p_uart_obj->tx_fifo, (void**)(&buf1), (void**)(&buf2), &buf1_len, &buf2_len, portMAX_DELAY)) {
+            memcpy(&session_header, buf1, buf1_len);
+            vRingbufferReturnItem(p_uart_obj->tx_fifo, buf1);
 
-            memcpy(p_uart_obj->tx_buffer, p_uart_obj->rx_buffer, p_uart_obj->rx_len);
+            if (buf2 != NULL) {
+                memcpy(((uint8_t*)(&session_header)) + buf1_len, buf2, buf2_len);
+                vRingbufferReturnItem(p_uart_obj->tx_fifo, buf2);
+            }
+        }
 
-            uart_modbus_tx_all();
+        if (xRingbufferReceiveSplit(p_uart_obj->tx_fifo, (void**)(&buf1), (void**)(&buf2), &buf1_len, &buf2_len, portMAX_DELAY)) {
+            memcpy(p_uart_obj->tx_buffer, buf1, buf1_len);
+            p_uart_obj->tx_len = buf1_len;
+            vRingbufferReturnItem(p_uart_obj->tx_fifo, buf1);
+
+            if (buf2 != NULL) {
+                memcpy(((uint8_t*)(p_uart_obj->tx_buffer)) + buf1_len, buf2, buf2_len);
+                p_uart_obj->tx_len += buf2_len;
+                vRingbufferReturnItem(p_uart_obj->tx_fifo, buf2);
+            }
+        }
+
+        modbus_gpio_rxen_set(1);
+        uint16_t crc16 = modbus_rtu_crc16(p_uart_obj->tx_buffer, p_uart_obj->tx_len);
+        p_uart_obj->tx_buffer[p_uart_obj->tx_len++] = crc16 & 0xFF; // Lower Byte
+        p_uart_obj->tx_buffer[p_uart_obj->tx_len++] = (crc16>>8) & 0xFF; // Higher Byte
+        //ets_delay_us(p_uart_obj->char_duration_us);
+        p_uart_obj->tx_ptr = NULL;
+        // Enter UART_TXFIFO_EMPTY_INT immediately
+        // Tx FIFO is populated by the ISR
+        uart_enable_tx_intr(p_uart_obj->uart_num, 1, UART_EMPTY_THRESH_DEFAULT);
+
+        xSemaphoreTake(p_uart_obj->tx_done_sem, portMAX_DELAY);
+
+        if (xSemaphoreTake(p_uart_obj->rx_done_sem, 300/portTICK_RATE_MS) == pdTRUE) {
+            // ESP_LOGI("MODBUS", "Received %d bytes, overflow state %d", p_uart_obj->rx_len, p_uart_obj->rx_overflow);
+            // hexdump(session_header.socket, p_uart_obj->rx_buffer, p_uart_obj->rx_len);
+
+            buf1_len = p_uart_obj->rx_len-2;
+            buf2_len = modbus_rtu_crc16(p_uart_obj->rx_buffer, buf1_len);
+            if (    (p_uart_obj->rx_buffer[buf1_len] == (buf2_len & 0xFF)) &&
+                    (p_uart_obj->rx_buffer[buf1_len+1] == ((buf2_len>>8) & 0xFF)) &&
+                    p_uart_obj->rx_buffer[0] == session_header.uid) {
+                tcp_server_send_response(&session_header, p_uart_obj->rx_buffer, buf1_len);
+            } else {
+                ESP_LOGW("Modbus_Rx", "Bad CRC");
+            }
 
             p_uart_obj->rx_len = 0;
-            p_uart_obj->rx_data_ready = 0;
             p_uart_obj->rx_overflow = RX_OVFL_NONE;
             uart_enable_intr_mask(p_uart_obj->uart_num, UART_RXFIFO_TOUT_INT_CLR_M | UART_RXFIFO_FULL_INT_CLR_M);
+        } else {
+            ESP_LOGW("Modbus_Rx", "Rx timeout");
         }
     }
 }
@@ -206,9 +251,10 @@ void modbus_uart_init() {
     p_uart_obj->rx_done_sem = xSemaphoreCreateBinary();
     p_uart_obj->rx_buffer = malloc(MODBUS_BUF_SIZE);
     p_uart_obj->rx_len = 0;
-    p_uart_obj->rx_data_ready = 0;
     p_uart_obj->rx_overflow = RX_OVFL_NONE;
 
+    p_uart_obj->tx_fifo = xRingbufferCreate(MODBUS_RTU_TX_FIFO_LEN, RINGBUF_TYPE_ALLOWSPLIT);
+    p_uart_obj->tx_fifo_mux = xSemaphoreCreateMutex();
 
     // Configure parameters of an UART driver,
     // communication pins and install the driver
@@ -250,7 +296,7 @@ void modbus_uart_init() {
     gpio_config(&io_conf);
     gpio_set_level(MODBUS_GPIO_DE_ID, 0);
 
-    xTaskCreate(echo_task, "uart_echo_task", 1024, NULL, 10, NULL);
+    xTaskCreate(modbus_rtu_task, "test_task", 2048, NULL, 10, NULL);
 }
 
 void modbus_uart_deinit() {
@@ -259,5 +305,21 @@ void modbus_uart_deinit() {
         free(p_uart_obj->tx_buffer);
         vSemaphoreDelete(p_uart_obj->rx_done_sem);
         free(p_uart_obj->rx_buffer);
+        vRingbufferDelete(p_uart_obj->tx_fifo);
+        vSemaphoreDelete(p_uart_obj->tx_fifo_mux);
     }
+}
+
+int modbus_uart_fifo_push(const rtu_session_t* session_header, const void* payload, size_t len) {
+    // The mutex ensures the head and its payload are added to the ringbuf together
+    if (xSemaphoreTake(p_uart_obj->tx_fifo_mux, 0) == pdTRUE) {
+        if (xRingbufferGetCurFreeSize(p_uart_obj->tx_fifo) > 2*8 + sizeof(rtu_session_t) + len) {
+            xRingbufferSend(p_uart_obj->tx_fifo, session_header, sizeof(rtu_session_t), 0);
+            xRingbufferSend(p_uart_obj->tx_fifo, payload, len, 0);
+            xSemaphoreGive(p_uart_obj->tx_fifo_mux);
+            return 1;
+        }
+        xSemaphoreGive(p_uart_obj->tx_fifo_mux);
+    }
+    return 0;
 }
