@@ -21,7 +21,7 @@
 #define UART_FULL_THRESH_DEFAULT  (120)
 #define UART_TOUT_THRESH_DEFAULT   (22)
 
-#define MODBUS_BUF_SIZE (MODBUS_RTU_FRAME_MAXLEN)
+#define MODBUS_BUF_SIZE (MODBUS_RTU_FRAME_MAXLEN+MODBUS_TCP_PAYLOAD_OFFSET)
 
 #define RX_OVFL_NONE 0
 #define RX_OVFL_BUF  1
@@ -219,16 +219,16 @@ static void modbus_rtu_task(void* param) {
             // hexdump(session_header.socket, p_uart_obj->rx_buffer, p_uart_obj->rx_len);
 
             buf1_len = p_uart_obj->rx_len-2;
-            buf2_len = modbus_rtu_crc16(p_uart_obj->rx_buffer, buf1_len);
+            buf2_len = modbus_rtu_crc16(p_uart_obj->rx_buffer+MODBUS_TCP_PAYLOAD_OFFSET, buf1_len-MODBUS_TCP_PAYLOAD_OFFSET);
             if (    (p_uart_obj->rx_buffer[buf1_len] == (buf2_len & 0xFF)) &&
                     (p_uart_obj->rx_buffer[buf1_len+1] == ((buf2_len>>8) & 0xFF)) &&
-                    p_uart_obj->rx_buffer[0] == session_header.uid) {
+                    p_uart_obj->rx_buffer[MODBUS_TCP_PAYLOAD_OFFSET] == session_header.uid) {
                 tcp_server_send_response(&session_header, p_uart_obj->rx_buffer, buf1_len);
             } else {
                 ESP_LOGW("Modbus_Rx", "Bad CRC");
             }
 
-            p_uart_obj->rx_len = 0;
+            p_uart_obj->rx_len = MODBUS_TCP_PAYLOAD_OFFSET;
             p_uart_obj->rx_overflow = RX_OVFL_NONE;
             uart_enable_intr_mask(p_uart_obj->uart_num, UART_RXFIFO_TOUT_INT_CLR_M | UART_RXFIFO_FULL_INT_CLR_M);
         } else {
@@ -250,7 +250,7 @@ void modbus_uart_init() {
 
     p_uart_obj->rx_done_sem = xSemaphoreCreateBinary();
     p_uart_obj->rx_buffer = malloc(MODBUS_BUF_SIZE);
-    p_uart_obj->rx_len = 0;
+    p_uart_obj->rx_len = MODBUS_TCP_PAYLOAD_OFFSET;
     p_uart_obj->rx_overflow = RX_OVFL_NONE;
 
     p_uart_obj->tx_fifo = xRingbufferCreate(MODBUS_RTU_TX_FIFO_LEN, RINGBUF_TYPE_ALLOWSPLIT);

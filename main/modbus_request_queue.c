@@ -7,29 +7,22 @@
 #include "modbus_tcp_server.h"
 #include "modbus.h"
 
-#define MODBUS_TCP_PAYLOAD_OFFSET 6
-
-void tcp_server_send_response(const rtu_session_t* session_header, const void* payload, size_t len) {
-#ifdef MODBUS_BRIDGE_COMPATIBILITY_MODE
-    uint8_t buf[MODBUS_RTU_PDU_MAXLEN + sizeof(mbap_header_t)];
-#else
-    uint8_t buf[sizeof(mbap_header_t)];
-#endif
-    mbap_header_t* resp_header = (mbap_header_t*) buf;
+// To maintain compatibility, the response will be send to the
+// TCP client via a single send(). Some MODBUS TCP client assumes
+// recv() and send() are paired, this is a common mistake,
+// TCP streams bytes, recv() and send() does not define packets.
+// A correct TCP client implementation should allow a frame to be
+// sent via multiple send().
+void tcp_server_send_response(const rtu_session_t* session_header, void* payload, size_t len) {
+    mbap_header_t* resp_header = (mbap_header_t*) payload;
     resp_header->transaction_id = session_header->transaction_id;
     resp_header->protocol_id = session_header->protocol_id;
     resp_header->length = len + MODBUS_TCP_PAYLOAD_OFFSET;
     resp_header->uid = session_header->uid;
     mbap_header_hton(resp_header);
-
-#ifdef MODBUS_BRIDGE_COMPATIBILITY_MODE
-    memcpy(buf + MODBUS_TCP_PAYLOAD_OFFSET, payload, len);
-    send(session_header->socket, buf, len + MODBUS_TCP_PAYLOAD_OFFSET, 0);
-#else
-    send(session_header->socket, resp_header, MODBUS_TCP_PAYLOAD_OFFSET, MSG_MORE);
     send(session_header->socket, payload, len, 0);
-#endif
 }
+
 //////////////////////
 /// Callbacks
 //////////////////////
