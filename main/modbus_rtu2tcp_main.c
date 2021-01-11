@@ -164,10 +164,17 @@ void app_main() {
 
     s_connect_event_group = xEventGroupCreate();
 
-    modbus_uart_init();
+    uint32_t baudrate = 9600;
+    uint8_t parity = 0;
+    ESP_ERROR_CHECK(cp_get_u32_by_id(CFG_UART_BAUD, &baudrate));
+    ESP_ERROR_CHECK(cp_get_u8_by_id(CFG_UART_PARITY, &parity));
+    modbus_uart_init(baudrate, parity);
 
     char ssid[WIFI_SSID_MAXLEN], pass[WIFI_PASS_MAXLEN];
-    ESP_ERROR_CHECK(cp_get_wifi_params(ssid, pass));
+    size_t ssid_len = WIFI_SSID_MAXLEN;
+    size_t pass_len = WIFI_PASS_MAXLEN;
+    ESP_ERROR_CHECK(cp_get_by_id(CFG_WIFI_SSID, ssid, &ssid_len));
+    ESP_ERROR_CHECK(cp_get_by_id(CFG_WIFI_PASS, pass, &pass_len));
     if (strlen(ssid) == 0) {
         ESP_LOGI(TAG, "ESP_WIFI_MODE_AP");
         wifi_init_softap();
@@ -208,4 +215,22 @@ void app_main() {
     printf("%dMB %s flash\n", spi_flash_get_chip_size() / (1024 * 1024),
             (chip_info.features & CHIP_FEATURE_EMB_FLASH) ? "embedded" : "external");
     */
+}
+
+esp_err_t cpcb_check_set_baudrate(uint32_t baudrate) {
+    if (baudrate >= 1200 && baudrate <= 921600) {
+        modbus_uart_set_baudrate(baudrate);
+        return ESP_OK;
+    } else {
+        return ESP_ERR_INVALID_ARG;
+    }
+}
+
+esp_err_t cpcb_check_set_parity(uint8_t parity) {
+    if (parity >= 0 && parity < 3) {
+        modbus_uart_set_parity(parity);
+        return ESP_OK;
+    } else {
+        return ESP_ERR_INVALID_ARG;
+    }
 }

@@ -46,6 +46,8 @@ typedef struct uart_modbus_obj {
 
     RingbufHandle_t tx_fifo;
     SemaphoreHandle_t tx_fifo_mux;
+
+    SemaphoreHandle_t cfg_mux;
 } uart_modbus_obj_t;
 
 static uart_modbus_obj_t* p_uart_obj = {0};
@@ -202,6 +204,7 @@ static void modbus_rtu_task(void* param) {
             }
         }
 
+        xSemaphoreTake(p_uart_obj->cfg_mux, portMAX_DELAY);
         modbus_gpio_rxen_set(1);
         uint16_t crc16 = modbus_rtu_crc16(p_uart_obj->tx_buffer, p_uart_obj->tx_len);
         p_uart_obj->tx_buffer[p_uart_obj->tx_len++] = crc16 & 0xFF; // Lower Byte
@@ -234,14 +237,24 @@ static void modbus_rtu_task(void* param) {
         } else {
             ESP_LOGW("Modbus_Rx", "Rx timeout");
         }
+        xSemaphoreGive(p_uart_obj->cfg_mux);
     }
 }
 
-void modbus_uart_init() {
+static uart_parity_t parity_from_u8(uint8_t val) {
+    uart_parity_t parity = UART_PARITY_DISABLE;
+    if (val == 1 || val == 3)
+        parity = UART_PARITY_ODD;
+    else if (val == 2)
+        parity = UART_PARITY_EVEN;
+    return parity;
+}
+
+void modbus_uart_init(uint32_t baudrate, uint8_t parity) {
     p_uart_obj = malloc(sizeof(uart_modbus_obj_t));
     p_uart_obj->uart_num = UART_NUM_0;
     p_uart_obj->uart_dev = &uart0;
-    p_uart_obj->char_duration_us = 10*1000000/115200;
+    p_uart_obj->char_duration_us = MODBUS_RTU_CHAR_US(baudrate);
 
     p_uart_obj->tx_done_sem = xSemaphoreCreateBinary();
     p_uart_obj->tx_buffer = malloc(MODBUS_BUF_SIZE);
@@ -256,12 +269,14 @@ void modbus_uart_init() {
     p_uart_obj->tx_fifo = xRingbufferCreate(MODBUS_RTU_TX_FIFO_LEN, RINGBUF_TYPE_ALLOWSPLIT);
     p_uart_obj->tx_fifo_mux = xSemaphoreCreateMutex();
 
+    p_uart_obj->cfg_mux = xSemaphoreCreateMutex();
+
     // Configure parameters of an UART driver,
     // communication pins and install the driver
     uart_config_t uart_config = {
-        .baud_rate = 115200,
+        .baud_rate = baudrate,
         .data_bits = UART_DATA_8_BITS,
-        .parity    = UART_PARITY_DISABLE,
+        .parity    = parity_from_u8(parity),
         .stop_bits = UART_STOP_BITS_1,
         .flow_ctrl = UART_HW_FLOWCTRL_DISABLE
     };
@@ -279,7 +294,7 @@ void modbus_uart_init() {
         .txfifo_empty_intr_thresh = UART_EMPTY_THRESH_DEFAULT
     };
     ESP_ERROR_CHECK(uart_intr_config(p_uart_obj->uart_num, &uart_intr));
-    ESP_LOGI("MODBUS", "UART INIT");
+    ESP_LOGI("Modbus RTU", "UART Init, baudrate = %d, parity = %d", baudrate, parity);
 
     gpio_config_t io_conf;
     //disable interrupt
@@ -307,6 +322,7 @@ void modbus_uart_deinit() {
         free(p_uart_obj->rx_buffer);
         vRingbufferDelete(p_uart_obj->tx_fifo);
         vSemaphoreDelete(p_uart_obj->tx_fifo_mux);
+        vSemaphoreDelete(p_uart_obj->cfg_mux);
     }
 }
 
@@ -322,4 +338,17 @@ int modbus_uart_fifo_push(const rtu_session_t* session_header, const void* paylo
         xSemaphoreGive(p_uart_obj->tx_fifo_mux);
     }
     return 0;
+}
+
+void modbus_uart_set_baudrate(int baudrate) {
+    xSemaphoreTake(p_uart_obj->cfg_mux, portMAX_DELAY);
+    uart_set_baudrate(p_uart_obj->uart_num, baudrate);
+    p_uart_obj->char_duration_us = MODBUS_RTU_CHAR_US(baudrate);
+    xSemaphoreGive(p_uart_obj->cfg_mux);
+}
+
+void modbus_uart_set_parity(uint8_t parity) {
+    xSemaphoreTake(p_uart_obj->cfg_mux, portMAX_DELAY);
+    uart_set_parity(p_uart_obj->uart_num, parity_from_u8(parity));
+    xSemaphoreGive(p_uart_obj->cfg_mux);
 }

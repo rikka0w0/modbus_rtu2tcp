@@ -5,10 +5,23 @@
 <title>Modbus RTU2TCP Configuration</title>
 <h2>Modbus RTU2TCP Configuration</h2>
 
-<label for="ssid">Wifi SSID:</label><br>
-<input type="text" id="ssid" name="ssid"><br>
-<label for="wifipass">Wifi Password:</label><br>
-<input type="text" id="wifipass" name="wifipass"><br><br>
+<label for="wifi_ssid">Wifi SSID:</label><br>
+<input type="text" id="wifi_ssid" name="ssid"><br>
+<label for="wifi_pass">Wifi Password:</label><br>
+<input type="text" id="wifi_pass" name="wifipass"><br><br>
+
+<label for="uart_baud_rate">Baud rate:</label><br>
+<select id="uart_baud_rate">
+    <option>9600</option>
+    <option>19200</option>
+    <option>115200</option>
+</select><br>
+<label for="uart_parity">Parity:</label><br>
+<select id="uart_parity">
+    <option value="0">None</option>
+    <option value="1">Odd</option>
+    <option value="2">Even</option>
+</select><br>
 <button onclick="applySettings()">Apply</button>
 
 <form action="/restart?confirm=yes">
@@ -21,41 +34,26 @@ QwQ
 </div>
 
 <script>
-var fields = ["ssid", "wifipass"];
-
-function formatParams( method, params ){
-	return "?method=" + method + "&" +
-		Object.keys(params).map(function(key){
-			return key+"="+encodeURIComponent(params[key])
-		})
-		.join("&");
-}
+var fields = ["wifi_ssid", "wifi_pass", "uart_baud_rate", "uart_parity"];
 
 function applySettings() {
-	var ssid = document.getElementById("ssid").value;
-	var wifipass = document.getElementById("wifipass").value;
-
-	var params = {};
 	fields.forEach(function(key) {
-		params[key] = document.getElementById(key).value;
-	});
-	var reqUrl = "/config" + formatParams("set", params);
-	console.log("reqUrl = "+reqUrl);
+		var reqUrl = "/config?method=set&field=" + key + "&value=" + encodeURIComponent(document.getElementById(key).value);
+		console.log("reqUrl = "+reqUrl);
 
-	var xhttp = new XMLHttpRequest();
-	xhttp.onreadystatechange = function() {
-		if (this.readyState == 4 && this.status == 200) {
-			document.getElementById("demo").innerHTML = xhttp.responseText;
-		}
-	};
-	xhttp.open("GET", reqUrl, true);
-	xhttp.send();
+		var xhttp = new XMLHttpRequest();
+		xhttp.onreadystatechange = function() {
+			if (this.readyState == 4 && this.status == 200) {
+				document.getElementById("demo").innerText += "\n" + xhttp.responseText;
+			}
+		};
+		xhttp.open("GET", reqUrl, true);
+		xhttp.send();
+	});
 }
 
 fields.forEach(function(key) {
-	var params = {};
-	params["field"] = key;
-	var reqUrl = "/config" + formatParams("get", params);
+	var reqUrl = "/config?method=get&field=" + key;
 	var xhttp = new XMLHttpRequest();
 	xhttp.onreadystatechange = function() {
 		if (this.readyState == 4 && this.status == 200) {
