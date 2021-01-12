@@ -1,4 +1,5 @@
 #include <string.h>
+#include <errno.h>
 #include <sys/param.h>
 
 #include "freertos/FreeRTOS.h"
@@ -418,7 +419,7 @@ static void tcp_server_task(void *pvParameters) {
             // handle new connections
             int newfd = accept(listener, NULL, 0);
             if(newfd == -1) {
-                TCPSVR_LOGE("Server-accept() error lol!");
+                TCPSVR_LOGE("error in accept (%d)", errno);
             } else {
                 tcp_server_enable_keepalive(newfd);
                 cil_register_client(&client_list, newfd);

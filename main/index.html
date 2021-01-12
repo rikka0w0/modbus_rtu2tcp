@@ -12,9 +12,18 @@
 
 <label for="uart_baud_rate">Baud rate:</label><br>
 <select id="uart_baud_rate">
+    <option>2400</option>
+    <option>4800</option>
     <option>9600</option>
+    <option>14400</option>
     <option>19200</option>
+    <option>28800</option>
+    <option>38400</option>
+    <option>57600</option>
     <option>115200</option>
+    <option>128000</option>
+    <option>256000</option>
+    <option>921600</option>
 </select><br>
 <label for="uart_parity">Parity:</label><br>
 <select id="uart_parity">
@@ -22,6 +31,10 @@
     <option value="1">Odd</option>
     <option value="2">Even</option>
 </select><br>
+<label for="uart_tx_delay">Tx Delay(us):</label><br>
+<input type="text" id="uart_tx_delay" name="uart_tx_delay"><br><br>
+
+
 <button onclick="applySettings()">Apply</button>
 
 <form action="/restart?confirm=yes">
@@ -34,7 +47,7 @@ QwQ
 </div>
 
 <script>
-var fields = ["wifi_ssid", "wifi_pass", "uart_baud_rate", "uart_parity"];
+var fields = ["wifi_ssid", "wifi_pass", "uart_baud_rate", "uart_parity", "uart_tx_delay"];
 
 function applySettings() {
 	fields.forEach(function(key) {
@@ -48,6 +61,7 @@ function applySettings() {
 			}
 		};
 		xhttp.open("GET", reqUrl, true);
+		xhttp.setRequestHeader("Connection", "close");
 		xhttp.send();
 	});
 }

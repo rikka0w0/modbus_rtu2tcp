@@ -115,12 +115,8 @@ static void wifi_event_handler(void* arg, esp_event_base_t event_base,
 
 		memcpy(&s_ipv4_addr, &info.ip, sizeof(s_ipv4_addr));
 		xEventGroupSetBits(s_connect_event_group, GOT_IPV4_BIT);
-
-		network_ready();
     } else if (event_id == WIFI_EVENT_STA_CONNECTED) {
         tcpip_adapter_create_ip6_linklocal(TCPIP_ADAPTER_IF_STA);
-
-        network_ready();
     }
 }
 
@@ -157,6 +153,16 @@ void wifi_init_softap() {
              EXAMPLE_ESP_WIFI_SSID, EXAMPLE_ESP_WIFI_PASS);
 }
 
+static void rtu_init() {
+    uint32_t baudrate = 9600;
+    uint8_t parity = 0;
+    uint32_t tx_delay = 1;
+    ESP_ERROR_CHECK(cp_get_u32_by_id(CFG_UART_BAUD, &baudrate));
+    ESP_ERROR_CHECK(cp_get_u8_by_id(CFG_UART_PARITY, &parity));
+    ESP_ERROR_CHECK(cp_get_u8_by_id(CFG_UART_TX_DELAY, &tx_delay));
+    modbus_uart_init(baudrate, parity, tx_delay);
+}
+
 void app_main() {
     ESP_ERROR_CHECK(nvs_flash_init());
     ESP_ERROR_CHECK(esp_netif_init()); // mDNS Implies tcpip_adapter_init();
@@ -164,11 +170,8 @@ void app_main() {
 
     s_connect_event_group = xEventGroupCreate();
 
-    uint32_t baudrate = 9600;
-    uint8_t parity = 0;
-    ESP_ERROR_CHECK(cp_get_u32_by_id(CFG_UART_BAUD, &baudrate));
-    ESP_ERROR_CHECK(cp_get_u8_by_id(CFG_UART_PARITY, &parity));
-    modbus_uart_init(baudrate, parity);
+    rtu_init();
+    network_ready();
 
     char ssid[WIFI_SSID_MAXLEN], pass[WIFI_PASS_MAXLEN];
     size_t ssid_len = WIFI_SSID_MAXLEN;
@@ -227,8 +230,17 @@ esp_err_t cpcb_check_set_baudrate(uint32_t baudrate) {
 }
 
 esp_err_t cpcb_check_set_parity(uint8_t parity) {
-    if (parity >= 0 && parity < 3) {
+    if (parity < 3) {
         modbus_uart_set_parity(parity);
+        return ESP_OK;
+    } else {
+        return ESP_ERR_INVALID_ARG;
+    }
+}
+
+esp_err_t cpcb_check_set_tx_delay(uint32_t tx_delay) {
+    if (tx_delay <= MODBUS_RTU_TX_DELAY_US_MAX) {
+        modbus_uart_set_tx_delay(tx_delay);
         return ESP_OK;
     } else {
         return ESP_ERR_INVALID_ARG;

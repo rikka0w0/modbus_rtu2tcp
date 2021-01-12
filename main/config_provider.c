@@ -29,7 +29,8 @@ static config_def_t config_defs[CFG_IDT_MAX] = {
     {.name = "wifi_ssid",       .type = CFG_DATA_STR,   .default_val.str = NULL,    .validate.str = NULL},
     {.name = "wifi_pass",       .type = CFG_DATA_STR,   .default_val.str = NULL,    .validate.str = NULL},
     {.name = "uart_baud_rate",  .type = CFG_DATA_U32,   .default_val.u32 = 9600,    .validate.u32 = cpcb_check_set_baudrate},
-    {.name = "uart_parity",     .type = CFG_DATA_U8,    .default_val.u8 = 0,        .validate.u8 = cpcb_check_set_parity}
+    {.name = "uart_parity",     .type = CFG_DATA_U8,    .default_val.u8 = 0,        .validate.u8 = cpcb_check_set_parity},
+    {.name = "uart_tx_delay",   .type = CFG_DATA_U32,   .default_val.u32 = 1,       .validate.u32 = cpcb_check_set_tx_delay}
 };
 
 enum cfg_data_idt cp_id_from_name(const char* name) {

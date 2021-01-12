@@ -31,6 +31,7 @@ typedef struct uart_modbus_obj {
     uart_port_t uart_num;               /*!< UART port number*/
     uart_dev_t* uart_dev;               /*!< UART peripheral (Address)*/
     uint32_t char_duration_us;
+    uint32_t tx_delay_us;
 
     SemaphoreHandle_t tx_done_sem;
     uint8_t* tx_buffer;    // The tx buffer, allocated at UART init
@@ -74,6 +75,8 @@ static void uart_modbus_intr_handler(void *param) {
                     break;
                 } else {
                     // The first interrupt, set DE high to enable tx
+                    modbus_gpio_rxen_set(1);
+                    ets_delay_us(p_uart_obj->tx_delay_us);
                     p_uart->tx_ptr = p_uart->tx_buffer;
                 }
             } else {    // p_uart->tx_ptr != NULL
@@ -82,7 +85,7 @@ static void uart_modbus_intr_handler(void *param) {
                     p_uart->tx_ptr = NULL;
 
                     // Although we have pushed the last byte into the buffer, but the UART will take sometime to send it
-                    ets_delay_us(p_uart_obj->char_duration_us << 1);
+                    ets_delay_us(p_uart_obj->char_duration_us);
                     modbus_gpio_rxen_set(0);
 
                     xSemaphoreGiveFromISR(p_uart->tx_done_sem, &task_woken);
@@ -166,16 +169,6 @@ static void uart_modbus_intr_handler(void *param) {
     } // while (uart_intr_status != 0x0);
 }
 
-static void hexdump(int socket, void* buf, size_t len) {
-    char* mybuf = (char*) buf;
-    char strbuf[128];
-    int idx = 0;
-    for (int i=0; i<len; i++) {
-        idx += snprintf(&(strbuf[idx]), sizeof(strbuf), " %02X", mybuf[i]);
-    }
-    ESP_LOGI("MODBUS_Rx", "Rx[%d]:%s", socket, strbuf);
-}
-
 static void modbus_rtu_task(void* param) {
     while (1) {
         rtu_session_t session_header;
@@ -205,7 +198,6 @@ static void modbus_rtu_task(void* param) {
         }
 
         xSemaphoreTake(p_uart_obj->cfg_mux, portMAX_DELAY);
-        modbus_gpio_rxen_set(1);
         uint16_t crc16 = modbus_rtu_crc16(p_uart_obj->tx_buffer, p_uart_obj->tx_len);
         p_uart_obj->tx_buffer[p_uart_obj->tx_len++] = crc16 & 0xFF; // Lower Byte
         p_uart_obj->tx_buffer[p_uart_obj->tx_len++] = (crc16>>8) & 0xFF; // Higher Byte
@@ -238,6 +230,9 @@ static void modbus_rtu_task(void* param) {
             ESP_LOGW("Modbus_Rx", "Rx timeout");
         }
         xSemaphoreGive(p_uart_obj->cfg_mux);
+
+        // Inter-frame gap
+        vTaskDelay(p_uart_obj->char_duration_us * 4 * configTICK_RATE_HZ / 1000000 );
     }
 }
 
@@ -250,11 +245,17 @@ static uart_parity_t parity_from_u8(uint8_t val) {
     return parity;
 }
 
-void modbus_uart_init(uint32_t baudrate, uint8_t parity) {
+static uint32_t calc_char_us(uint32_t baudrate, uint8_t parity) {
+    uint8_t bits = parity == 0 ? 10 : 11;
+    return bits * 1000000 / baudrate;
+}
+
+void modbus_uart_init(uint32_t baudrate, uint8_t parity, uint32_t tx_delay) {
     p_uart_obj = malloc(sizeof(uart_modbus_obj_t));
     p_uart_obj->uart_num = UART_NUM_0;
     p_uart_obj->uart_dev = &uart0;
-    p_uart_obj->char_duration_us = MODBUS_RTU_CHAR_US(baudrate);
+    p_uart_obj->char_duration_us = calc_char_us(baudrate, parity);
+    p_uart_obj->tx_delay_us = tx_delay;
 
     p_uart_obj->tx_done_sem = xSemaphoreCreateBinary();
     p_uart_obj->tx_buffer = malloc(MODBUS_BUF_SIZE);
@@ -340,15 +341,26 @@ int modbus_uart_fifo_push(const rtu_session_t* session_header, const void* paylo
     return 0;
 }
 
-void modbus_uart_set_baudrate(int baudrate) {
+void modbus_uart_set_baudrate(uint32_t baudrate) {
+    uart_parity_t parity;
     xSemaphoreTake(p_uart_obj->cfg_mux, portMAX_DELAY);
     uart_set_baudrate(p_uart_obj->uart_num, baudrate);
-    p_uart_obj->char_duration_us = MODBUS_RTU_CHAR_US(baudrate);
+    uart_get_parity(p_uart_obj->uart_num, &parity);
+    p_uart_obj->char_duration_us = calc_char_us(baudrate, parity);
     xSemaphoreGive(p_uart_obj->cfg_mux);
 }
 
 void modbus_uart_set_parity(uint8_t parity) {
+    uint32_t baudrate;
     xSemaphoreTake(p_uart_obj->cfg_mux, portMAX_DELAY);
     uart_set_parity(p_uart_obj->uart_num, parity_from_u8(parity));
+    uart_get_baudrate(p_uart_obj->uart_num, &baudrate);
+    p_uart_obj->char_duration_us = calc_char_us(baudrate, parity);
+    xSemaphoreGive(p_uart_obj->cfg_mux);
+}
+
+void modbus_uart_set_tx_delay(uint32_t tx_delay) {
+    xSemaphoreTake(p_uart_obj->cfg_mux, portMAX_DELAY);
+    p_uart_obj->tx_delay_us = tx_delay;
     xSemaphoreGive(p_uart_obj->cfg_mux);
 }

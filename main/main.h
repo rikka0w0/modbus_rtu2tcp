@@ -28,6 +28,7 @@ enum cfg_data_idt {
     CFG_WIFI_PASS,
     CFG_UART_BAUD,
     CFG_UART_PARITY,
+    CFG_UART_TX_DELAY,
 
     CFG_IDT_MAX
 };
@@ -53,5 +54,6 @@ void stop_webserver(void);
 // Config provider callbacks
 esp_err_t cpcb_check_set_baudrate(uint32_t baudrate);
 esp_err_t cpcb_check_set_parity(uint8_t parity);
+esp_err_t cpcb_check_set_tx_delay(uint32_t tx_delay);
 
 #endif /* MAIN_MAIN_H_ */
