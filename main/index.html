@@ -50,34 +50,44 @@ QwQ
 var fields = ["wifi_ssid", "wifi_pass", "uart_baud_rate", "uart_parity", "uart_tx_delay"];
 
 function applySettings() {
+	var json_req = {method: "set", fields: {}};
+	var fields_req = json_req["fields"];
 	fields.forEach(function(key) {
-		var reqUrl = "/config?method=set&field=" + key + "&value=" + encodeURIComponent(document.getElementById(key).value);
-		console.log("reqUrl = "+reqUrl);
-
-		var xhttp = new XMLHttpRequest();
-		xhttp.onreadystatechange = function() {
-			if (this.readyState == 4 && this.status == 200) {
-				document.getElementById("demo").innerText += "\n" + xhttp.responseText;
-			}
-		};
-		xhttp.open("GET", reqUrl, true);
-		xhttp.setRequestHeader("Connection", "close");
-		xhttp.send();
+		fields_req[key] = document.getElementById(key).value;
 	});
-}
 
-fields.forEach(function(key) {
-	var reqUrl = "/config?method=get&field=" + key;
 	var xhttp = new XMLHttpRequest();
 	xhttp.onreadystatechange = function() {
 		if (this.readyState == 4 && this.status == 200) {
-			document.getElementById(key).value = xhttp.responseText;
+			document.getElementById("demo").innerText += "qwq\n";
 		}
 	};
-	xhttp.open("GET", reqUrl, true);
-	xhttp.send();
-});
+	xhttp.open("post", "/json_post", true);
+	xhttp.setRequestHeader("Content-Type", "application/json;charset=UTF-8");
+	xhttp.send(JSON.stringify(json_req));
+}
 
+function readSettings() {
+	var json_req = {method: "get", fields: []};
+	fields.forEach(function(key) {
+		json_req["fields"].push(key);
+	});
+
+	var xhttp = new XMLHttpRequest();
+	xhttp.onreadystatechange = function() {
+		if (this.readyState == 4 && this.status == 200) {
+			var resp = JSON.parse(xhttp.responseText);
+			Object.keys(resp).forEach(function(key) {
+				document.getElementById(key).value = resp[key];
+			});
+		}
+	};
+	xhttp.open("get", "/json_get?json=" + encodeURIComponent(JSON.stringify(json_req)) + "&test=qwq", true);
+//xhttp.setRequestHeader("Content-Type", "application/json;charset=UTF-8");
+	xhttp.send();
+}
+
+readSettings();
 </script>
 
 </body>
