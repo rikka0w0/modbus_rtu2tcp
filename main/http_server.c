@@ -257,7 +257,6 @@ static esp_err_t json_post_handler(httpd_req_t *req) {
         goto func_ret;
     }
 
-    ESP_LOGI("json","len=%d",remaining);
     buf = (char*) malloc(remaining);
     while (remaining > 0) {
         ret = httpd_req_recv(req, buf, remaining);

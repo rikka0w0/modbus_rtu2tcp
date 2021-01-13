@@ -5,10 +5,20 @@
 <title>Modbus RTU2TCP Configuration</title>
 <h2>Modbus RTU2TCP Configuration</h2>
 
+<label for="wifi_mode">Wifi mode:</label><br>
+<select id="wifi_mode">
+    <option value = "0">AP mode only</option>
+    <option value = "1">STA mode first, AP mode as backup</option>
+</select><br>
 <label for="wifi_ssid">Wifi SSID:</label><br>
 <input type="text" id="wifi_ssid" name="ssid"><br>
 <label for="wifi_pass">Wifi Password:</label><br>
 <input type="text" id="wifi_pass" name="wifipass"><br><br>
+<label for="wifi_ssid_ap">Wifi SSID (AP):</label><br>
+Leave empty to use the default SSID (Modbus RTU2TCP [MAC])<br>
+<input type="text" id="wifi_ssid_ap" name="wifi_ssid_ap"><br>
+<label for="wifi_pass_ap">Wifi Password (AP):</label><br>
+<input type="text" id="wifi_pass_ap" name="wifi_pass_ap"><br><br>
 
 <label for="uart_baud_rate">Baud rate:</label><br>
 <select id="uart_baud_rate">
@@ -47,7 +57,7 @@ QwQ
 </div>
 
 <script>
-var fields = ["wifi_ssid", "wifi_pass", "uart_baud_rate", "uart_parity", "uart_tx_delay"];
+var fields = ["wifi_mode", "wifi_ssid", "wifi_pass", "wifi_ssid_ap", "wifi_pass_ap", "uart_baud_rate", "uart_parity", "uart_tx_delay"];
 
 function applySettings() {
 	var json_req = {method: "set", fields: {}};

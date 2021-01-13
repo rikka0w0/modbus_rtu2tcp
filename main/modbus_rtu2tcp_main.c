@@ -23,8 +23,6 @@
 #include "modbus.h"
 #include "modbus_tcp_server.h"
 
-#define EXAMPLE_ESP_WIFI_SSID      "Modbus RTU2TCP Init Setup"
-#define EXAMPLE_ESP_WIFI_PASS      "mypassword"
 #define EXAMPLE_MAX_STA_CONN       4
 static const char *TAG = "wifi softAP";
 
@@ -38,12 +36,6 @@ static const char* hostname = "modbus_rtu2tcp";
 static EventGroupHandle_t s_connect_event_group;
 static ip4_addr_t s_ipv4_addr;
 static ip6_addr_t s_ipv6_addr;
-
-static void network_ready(void) {
-    // Webserver
-    ESP_ERROR_CHECK(start_webserver());
-    modbus_tcp_server_create();
-}
 
 static void initialise_mdns(void) {
     //initialize mDNS
@@ -120,37 +112,67 @@ static void wifi_event_handler(void* arg, esp_event_base_t event_base,
     }
 }
 
+static void wifi_ap_set_default_ssid(char* ssid) {
+    uint8_t mac[6];
+    esp_wifi_get_mac(ESP_IF_WIFI_AP, mac);
+    snprintf(ssid, WIFI_SSID_MAXLEN, "%s %02X%02X%02X%02X%02X%02X", WIFI_AP_SSID_DEFAULT,
+                                       mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]);
+}
+
 void wifi_init_softap() {
-    // tcpip_adapter_init();
-    /**/
-
-    wifi_init_config_t cfg = WIFI_INIT_CONFIG_DEFAULT();
-    ESP_ERROR_CHECK(esp_wifi_init(&cfg));
-
-    ESP_ERROR_CHECK(esp_event_handler_register(IP_EVENT, IP_EVENT_GOT_IP6, &on_got_ipv6, NULL));
-
-    ESP_ERROR_CHECK(esp_event_handler_register(WIFI_EVENT, ESP_EVENT_ANY_ID, &wifi_event_handler, NULL));
-
-
     wifi_config_t wifi_config = {
         .ap = {
-            .ssid = EXAMPLE_ESP_WIFI_SSID,
-            .ssid_len = strlen(EXAMPLE_ESP_WIFI_SSID),
-            .password = EXAMPLE_ESP_WIFI_PASS,
             .max_connection = EXAMPLE_MAX_STA_CONN,
             .authmode = WIFI_AUTH_WPA_WPA2_PSK
         },
     };
-    if (strlen(EXAMPLE_ESP_WIFI_PASS) == 0) {
+
+    size_t ssid_len = WIFI_SSID_MAXLEN;
+    size_t pass_len = WIFI_PASS_MAXLEN;
+    ESP_ERROR_CHECK(cp_get_by_id(CFG_WIFI_SSID_AP, wifi_config.ap.ssid, &ssid_len));
+    ESP_ERROR_CHECK(cp_get_by_id(CFG_WIFI_PASS_AP, wifi_config.ap.password, &pass_len));
+    if (strlen((char*) wifi_config.ap.ssid) == 0) {
+        wifi_ap_set_default_ssid((char*) wifi_config.ap.ssid);
+    }
+    wifi_config.ap.ssid_len = strlen((char*)wifi_config.ap.ssid);
+    if (strlen((char*) wifi_config.ap.password) == 0) {
         wifi_config.ap.authmode = WIFI_AUTH_OPEN;
     }
 
+    ESP_ERROR_CHECK(esp_event_handler_register(IP_EVENT, IP_EVENT_GOT_IP6, &on_got_ipv6, NULL));
+    ESP_ERROR_CHECK(esp_event_handler_register(WIFI_EVENT, ESP_EVENT_ANY_ID, &wifi_event_handler, NULL));
+
+
+    //strncpy((char*) wifi_config.ap.password, EXAMPLE_ESP_WIFI_PASS, 60);
     ESP_ERROR_CHECK(esp_wifi_set_mode(WIFI_MODE_AP));
     ESP_ERROR_CHECK(esp_wifi_set_config(ESP_IF_WIFI_AP, &wifi_config));
     ESP_ERROR_CHECK(esp_wifi_start());
 
     ESP_LOGI(TAG, "wifi_init_softap finished. SSID:%s password:%s",
-             EXAMPLE_ESP_WIFI_SSID, EXAMPLE_ESP_WIFI_PASS);
+             (char*) wifi_config.ap.ssid, (char*) wifi_config.ap.password);
+}
+
+void wifi_init_sta() {
+    wifi_config_t wifi_config = { 0 };
+    size_t ssid_len = WIFI_SSID_MAXLEN;
+    size_t pass_len = WIFI_PASS_MAXLEN;
+    ESP_ERROR_CHECK(cp_get_by_id(CFG_WIFI_SSID, (char*)wifi_config.sta.ssid, &ssid_len));
+    ESP_ERROR_CHECK(cp_get_by_id(CFG_WIFI_PASS, (char*)wifi_config.sta.password, &pass_len));
+    if (strlen((char*)wifi_config.sta.ssid) == 0 || strlen((char*)wifi_config.sta.password) == 0) {
+        ESP_LOGW(TAG, "Invalid SSID or password for STA mode, switching to AP mode.");
+        wifi_init_softap();
+        return;
+    }
+
+    ESP_ERROR_CHECK(esp_event_handler_register(IP_EVENT, IP_EVENT_STA_GOT_IP, &on_got_ip, NULL));
+    ESP_ERROR_CHECK(esp_event_handler_register(IP_EVENT, IP_EVENT_GOT_IP6, &on_got_ipv6, NULL));
+    ESP_ERROR_CHECK(esp_event_handler_register(WIFI_EVENT, ESP_EVENT_ANY_ID, &wifi_event_handler, NULL));
+
+    ESP_LOGI(TAG, "Connecting to %s...", wifi_config.sta.ssid);
+    ESP_ERROR_CHECK(esp_wifi_set_mode(WIFI_MODE_STA));
+    ESP_ERROR_CHECK(esp_wifi_set_config(ESP_IF_WIFI_STA, &wifi_config));
+    ESP_ERROR_CHECK(esp_wifi_start());
+    ESP_ERROR_CHECK(esp_wifi_connect());
 }
 
 static void rtu_init() {
@@ -170,37 +192,25 @@ void app_main() {
 
     s_connect_event_group = xEventGroupCreate();
 
-    rtu_init();
-    network_ready();
+    wifi_init_config_t cfg = WIFI_INIT_CONFIG_DEFAULT();
+    ESP_ERROR_CHECK(esp_wifi_init(&cfg));
 
-    char ssid[WIFI_SSID_MAXLEN], pass[WIFI_PASS_MAXLEN];
-    size_t ssid_len = WIFI_SSID_MAXLEN;
-    size_t pass_len = WIFI_PASS_MAXLEN;
-    ESP_ERROR_CHECK(cp_get_by_id(CFG_WIFI_SSID, ssid, &ssid_len));
-    ESP_ERROR_CHECK(cp_get_by_id(CFG_WIFI_PASS, pass, &pass_len));
-    if (strlen(ssid) == 0) {
-        ESP_LOGI(TAG, "ESP_WIFI_MODE_AP");
+    rtu_init();
+    // Webserver
+    ESP_ERROR_CHECK(start_webserver());
+    modbus_tcp_server_create();
+
+    uint8_t wifi_mode = 0;
+    ESP_ERROR_CHECK(cp_get_u8_by_id(CFG_WIFI_MODE, &wifi_mode));
+    if (wifi_mode == 0) {
+        // AP mode only
         wifi_init_softap();
         initialise_mdns();
     } else {
-        ESP_LOGI(TAG, "ESP_WIFI_MODE_STA: [%s] = [%s]", ssid, pass);
-
-        wifi_init_config_t cfg = WIFI_INIT_CONFIG_DEFAULT();
-        ESP_ERROR_CHECK(esp_wifi_init(&cfg));
-        ESP_ERROR_CHECK(esp_event_handler_register(IP_EVENT, IP_EVENT_STA_GOT_IP, &on_got_ip, NULL));
-        ESP_ERROR_CHECK(esp_event_handler_register(IP_EVENT, IP_EVENT_GOT_IP6, &on_got_ipv6, NULL));
-        ESP_ERROR_CHECK(esp_event_handler_register(WIFI_EVENT, ESP_EVENT_ANY_ID, &wifi_event_handler, NULL));
-        wifi_config_t wifi_config = { 0 };
-
-        strcpy((char *)&wifi_config.sta.ssid, ssid);
-        strcpy((char *)&wifi_config.sta.password, pass);
-
-        ESP_LOGI(TAG, "Connecting to %s...", wifi_config.sta.ssid);
-        ESP_ERROR_CHECK(esp_wifi_set_mode(WIFI_MODE_STA));
-        ESP_ERROR_CHECK(esp_wifi_set_config(ESP_IF_WIFI_STA, &wifi_config));
-        ESP_ERROR_CHECK(esp_wifi_start());
-        ESP_ERROR_CHECK(esp_wifi_connect());
+        // STA mode
+        wifi_init_sta();
     }
+
 
     printf("Hello world!\n");
     xEventGroupWaitBits(s_connect_event_group, CONNECTED_BITS, pdTRUE, pdTRUE, portMAX_DELAY);

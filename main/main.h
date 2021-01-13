@@ -15,6 +15,8 @@
 #define CFG_STORAGE_NAMESPACE "app_cfg"
 #define WIFI_SSID_MAXLEN 32
 #define WIFI_PASS_MAXLEN 64
+#define WIFI_AP_SSID_DEFAULT "Modbus RTU2TCP"
+#define WIFI_AP_PASS_DEFAULT "password"
 
 enum cfg_data_type {
     CFG_DATA_UNKNOWN = 0,
@@ -29,6 +31,10 @@ enum cfg_data_idt {
     CFG_UART_BAUD,
     CFG_UART_PARITY,
     CFG_UART_TX_DELAY,
+
+    CFG_WIFI_MODE,
+    CFG_WIFI_SSID_AP,
+    CFG_WIFI_PASS_AP,
 
     CFG_IDT_MAX
 };
