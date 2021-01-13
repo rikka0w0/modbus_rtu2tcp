@@ -11,15 +11,30 @@
     <option value = "1">STA mode first, AP mode as backup</option>
 </select><br>
 <label for="wifi_ssid">Wifi SSID:</label><br>
-<input type="text" id="wifi_ssid" name="ssid"><br>
+<input type="text" id="wifi_ssid"><br>
 <label for="wifi_pass">Wifi Password:</label><br>
-<input type="text" id="wifi_pass" name="wifipass"><br><br>
-<label for="wifi_ssid_ap">Wifi SSID (AP):</label><br>
-Leave empty to use the default SSID (Modbus RTU2TCP [MAC])<br>
-<input type="text" id="wifi_ssid_ap" name="wifi_ssid_ap"><br>
-<label for="wifi_pass_ap">Wifi Password (AP):</label><br>
-<input type="text" id="wifi_pass_ap" name="wifi_pass_ap"><br><br>
+<input type="text" id="wifi_pass"><br><br>
 
+<label for="wifi_ssid_ap">AP Mode SSID:</label><br>
+Leave empty to use the default SSID (Modbus RTU2TCP [MAC])<br>
+<input type="text" id="wifi_ssid_ap"><br>
+<label for="wifi_pass_ap">AP Mode Password:</label><br>
+<input type="text" id="wifi_pass_ap"><br>
+<label for="wifi_auth_ap">AP Auth Mode:</label><br>
+<select id="wifi_auth_ap">
+    <option value = "0">Open, No password</option>
+    <option value = "1">WEP</option>
+    <option value = "2">WPA_PSK</option>
+    <option value = "3">WPA2_PSK</option>
+    <option value = "4">WPA_WPA2_PSK</option>
+    <option value = "5">WPA2_ENTERPRISE</option>
+    <option value = "6">WPA3_PSK</option>
+    <option value = "7">WPA2_WPA3_PSK</option>
+</select><br>
+<label for="wifi_conn_ap">AP Max No. of Clients:</label><br>
+<input type="text" id="wifi_conn_ap"><br>
+
+<br>
 <label for="uart_baud_rate">Baud rate:</label><br>
 <select id="uart_baud_rate">
     <option>2400</option>
@@ -57,7 +72,7 @@ QwQ
 </div>
 
 <script>
-var fields = ["wifi_mode", "wifi_ssid", "wifi_pass", "wifi_ssid_ap", "wifi_pass_ap", "uart_baud_rate", "uart_parity", "uart_tx_delay"];
+var fields = ["wifi_mode", "wifi_ssid", "wifi_pass", "wifi_ssid_ap", "wifi_pass_ap", "wifi_auth_ap", "wifi_conn_ap", "uart_baud_rate", "uart_parity", "uart_tx_delay"];
 
 function applySettings() {
 	var json_req = {method: "set", fields: {}};

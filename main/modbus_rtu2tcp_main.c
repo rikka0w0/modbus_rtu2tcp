@@ -23,7 +23,6 @@
 #include "modbus.h"
 #include "modbus_tcp_server.h"
 
-#define EXAMPLE_MAX_STA_CONN       4
 static const char *TAG = "wifi softAP";
 
 static const char* hostname = "modbus_rtu2tcp";
@@ -120,30 +119,29 @@ static void wifi_ap_set_default_ssid(char* ssid) {
 }
 
 void wifi_init_softap() {
-    wifi_config_t wifi_config = {
-        .ap = {
-            .max_connection = EXAMPLE_MAX_STA_CONN,
-            .authmode = WIFI_AUTH_WPA_WPA2_PSK
-        },
-    };
+    wifi_config_t wifi_config = {0};
 
+    // Load config
+    uint8_t auth = WIFI_AUTH_MAX;
     size_t ssid_len = WIFI_SSID_MAXLEN;
     size_t pass_len = WIFI_PASS_MAXLEN;
     ESP_ERROR_CHECK(cp_get_by_id(CFG_WIFI_SSID_AP, wifi_config.ap.ssid, &ssid_len));
     ESP_ERROR_CHECK(cp_get_by_id(CFG_WIFI_PASS_AP, wifi_config.ap.password, &pass_len));
+    ESP_ERROR_CHECK(cp_get_u8_by_id(CFG_WIFI_AUTH_AP, &auth));
+    ESP_ERROR_CHECK(cp_get_u8_by_id(CFG_WIFI_MAX_CONN_AP, &wifi_config.ap.max_connection));
     if (strlen((char*) wifi_config.ap.ssid) == 0) {
         wifi_ap_set_default_ssid((char*) wifi_config.ap.ssid);
     }
     wifi_config.ap.ssid_len = strlen((char*)wifi_config.ap.ssid);
     if (strlen((char*) wifi_config.ap.password) == 0) {
-        wifi_config.ap.authmode = WIFI_AUTH_OPEN;
+        auth = WIFI_AUTH_OPEN;
     }
+    wifi_config.ap.authmode = auth;
 
+    // Register event handlers
     ESP_ERROR_CHECK(esp_event_handler_register(IP_EVENT, IP_EVENT_GOT_IP6, &on_got_ipv6, NULL));
     ESP_ERROR_CHECK(esp_event_handler_register(WIFI_EVENT, ESP_EVENT_ANY_ID, &wifi_event_handler, NULL));
 
-
-    //strncpy((char*) wifi_config.ap.password, EXAMPLE_ESP_WIFI_PASS, 60);
     ESP_ERROR_CHECK(esp_wifi_set_mode(WIFI_MODE_AP));
     ESP_ERROR_CHECK(esp_wifi_set_config(ESP_IF_WIFI_AP, &wifi_config));
     ESP_ERROR_CHECK(esp_wifi_start());
@@ -255,4 +253,8 @@ esp_err_t cpcb_check_set_tx_delay(uint32_t tx_delay) {
     } else {
         return ESP_ERR_INVALID_ARG;
     }
+}
+
+esp_err_t cpcb_check_ap_auth(uint8_t auth) {
+    return (auth < WIFI_AUTH_MAX) ? ESP_OK : ESP_ERR_INVALID_ARG;
 }

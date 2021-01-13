@@ -17,6 +17,7 @@
 #define WIFI_PASS_MAXLEN 64
 #define WIFI_AP_SSID_DEFAULT "Modbus RTU2TCP"
 #define WIFI_AP_PASS_DEFAULT "password"
+#define WIFI_AP_MAX_CONN_DEFAULT 3
 
 enum cfg_data_type {
     CFG_DATA_UNKNOWN = 0,
@@ -35,6 +36,8 @@ enum cfg_data_idt {
     CFG_WIFI_MODE,
     CFG_WIFI_SSID_AP,
     CFG_WIFI_PASS_AP,
+    CFG_WIFI_AUTH_AP,
+    CFG_WIFI_MAX_CONN_AP,
 
     CFG_IDT_MAX
 };
@@ -61,5 +64,6 @@ void stop_webserver(void);
 esp_err_t cpcb_check_set_baudrate(uint32_t baudrate);
 esp_err_t cpcb_check_set_parity(uint8_t parity);
 esp_err_t cpcb_check_set_tx_delay(uint32_t tx_delay);
+esp_err_t cpcb_check_ap_auth(uint8_t auth);
 
 #endif /* MAIN_MAIN_H_ */

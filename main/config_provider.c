@@ -34,7 +34,9 @@ static config_def_t config_defs[CFG_IDT_MAX] = {
 
     {.name = "wifi_mode",       .type = CFG_DATA_U8,    .default_val.u8 = 1,        .validate.u8 = NULL},
     {.name = "wifi_ssid_ap",    .type = CFG_DATA_STR,   .default_val.str = NULL,    .validate.str = NULL},
-    {.name = "wifi_pass_ap",    .type = CFG_DATA_STR,   .default_val.str = WIFI_AP_PASS_DEFAULT,.validate.str = NULL},
+    {.name = "wifi_pass_ap",    .type = CFG_DATA_STR,   .default_val.str = WIFI_AP_PASS_DEFAULT,    .validate.str = NULL},
+    {.name = "wifi_auth_ap",    .type = CFG_DATA_U8,    .default_val.u8 = 4,        .validate.u8 = cpcb_check_ap_auth},
+    {.name = "wifi_conn_ap",.type = CFG_DATA_U8,    .default_val.u8 = WIFI_AP_MAX_CONN_DEFAULT, .validate.u8 = NULL},
 };
 
 enum cfg_data_idt cp_id_from_name(const char* name) {
