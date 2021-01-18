@@ -64,6 +64,9 @@ esp_err_t wifi_sta_query_ap(char* ssid, size_t ssid_len);
 uint8_t wifi_sta_connect(char ssid[WIFI_SSID_MAXLEN], char password[WIFI_PASS_MAXLEN]);
 uint8_t wifi_sta_query_status();
 void wifi_sta_disconnect();
+uint8_t  wifi_ap_turn_on();
+uint8_t  wifi_ap_turn_off();
+esp_err_t wifi_ap_query(char* ssid, size_t ssid_len);
 
 // Config provider callbacks
 esp_err_t cpcb_check_set_baudrate(uint32_t baudrate);

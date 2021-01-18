@@ -53,6 +53,33 @@ fieldset {
 legend {
     padding: 2px;    
 }
+
+// Panel
+.content_column {
+  box-sizing: border-box;
+}
+
+/* Create two equal columns that floats next to each other */
+.content_column {
+  float: left;
+  width: 50%;
+  padding: 10px;
+  height: 300px; /* Should be removed. Only for demonstration */
+}
+
+/* Clear floats after the columns */
+.content_row:after {
+  content: "";
+  display: table;
+  clear: both;
+}
+
+/* Responsive layout - makes the two columns stack on top of each other instead of next to each other */
+@media screen and (max-width: 600px) {
+  .content_column {
+    width: 100%;
+  }
+}
 </style>
 </head>
 
@@ -77,17 +104,20 @@ legend {
 	</select>
 	<br>
 	<br>
-	<fieldset> <legend>Wifi Station Mode</legend>
-		<div id="wifi_sta_status"></div>
-		<label for="wifi_sta_ssid">Wifi SSID:</label>
-		<button onclick="wifiConnect()">Connect</button><button onclick="wifiDisconnect()">Disconnect</button><br>
+	
+	<fieldset> <legend>Wifi Station Mode</legend>  	
+		<label for="wifi_sta_ssid">Wifi SSID:</label><br>
 		<input type="text" id="wifi_sta_ssid"><br>
 		<label for="wifi_sta_pass">Wifi Password:</label><br>
 		<input type="text" id="wifi_sta_pass"><br>
 		<label for="wifi_sta_retry">No. of reconnection before switch enable AP mode:</label><br>
 		<input type="text" id="wifi_sta_retry"><br>
+		<br>
+		Only avaliable in AP-only mode, If used in STA mode, loss of access may happen.<br>
+		<button onclick="wifiConnect()">Connect</button><button onclick="wifiDisconnect()">Disconnect</button><br>
+		<div id="wifi_sta_status"></div>
 	</fieldset>
-	
+
 	<fieldset> <legend>Wifi AP Mode</legend>
 		<label for="wifi_ap_ssid">AP Mode SSID:</label><br>
 		Leave empty to use the default SSID (Modbus RTU2TCP [MAC])<br>
@@ -106,7 +136,10 @@ legend {
 		    <option value = "7">WPA2_WPA3_PSK</option>
 		</select><br>
 		<label for="wifi_ap_conn">AP Max No. of Clients:</label><br>
-		<input type="text" id="wifi_ap_conn">
+		<input type="text" id="wifi_ap_conn"><br>
+		<br>
+		<button onclick="apTurnOn()">Turn on</button><button onclick="apTurnOff()">Turn off</button><br>
+		<div id="wifi_ap_status"></div>
 	</fieldset>
 </div>
 
@@ -185,9 +218,17 @@ function updateFields(resp) {
 
 function updateStaStatus(resp) {
 	if (resp["wifi_sta_status"] == "connected") {
-		document.getElementById("wifi_sta_status").innerText = "Connected to " + resp["wifi_sta_ap_ssid"];
+		document.getElementById("wifi_sta_status").innerText = "Connected to \"" + resp["wifi_sta_ap_ssid"] +"\"";
 	} else {
 		document.getElementById("wifi_sta_status").innerText = resp["wifi_sta_status"];
+	}
+}
+
+function updateApStatus(resp) {
+	if (resp["wifi_ap_turned_on"]) {
+		document.getElementById("wifi_ap_status").innerText = "Broadcasting with SSID: \"" + resp["wifi_ap_ssid"] +"\"";
+	} else {
+		document.getElementById("wifi_ap_status").innerText = "Turned off";
 	}
 }
 
@@ -212,6 +253,8 @@ xhttp.onreadystatechange = function() {
 			updateFields(resp);
 		} else if (resp["method"] === "wifi_sta_status") {
 			updateStaStatus(resp);
+		} else if (resp["method"] === "wifi_ap_status") {
+			updateApStatus(resp);
 		}
 	}
 
@@ -277,6 +320,16 @@ function wifiDisconnect() {
 	xhttp_send("get", json_req);
 }
 
+function apTurnOn() {
+	var json_req = {method: "wifi_ap_on"};
+	xhttp_send("get", json_req);
+}
+
+function apTurnOff() {
+	var json_req = {method: "wifi_ap_off"};
+	xhttp_send("get", json_req);
+}
+
 function readSettings() {
 	var json_req = {method: "get", fields: []};
 	fields.forEach(function(key) {
@@ -290,9 +343,16 @@ function readStaStatus() {
 	xhttp_send("get", json_req);
 }
 
+function readApStatus() {
+	var json_req = {method: "wifi_ap_status"};
+	xhttp_send("get", json_req);
+}
+
+
 readSettings();
 readStaStatus();
 setInterval(readStaStatus, 1000);
+setInterval(readApStatus, 1000);
 </script>
 
 </body>

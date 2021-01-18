@@ -178,8 +178,19 @@ static void json_get_wifi_connect(cJSON* resp_root, cJSON* req) {
     }
 
     cJSON_AddBoolToObject(resp_root, "wifi_sta_use_prev_cfg", use_prev_cfg);
-    cJSON_AddBoolToObject(resp_root, "wifi_sta_conn_cmd_result",
+    cJSON_AddBoolToObject(resp_root, "return_value",
                           wifi_sta_connect(sta_ssid_req, sta_pass_req));
+}
+
+static void json_get_wifi_ap_status(cJSON* resp_root) {
+    char ssid[WIFI_SSID_MAXLEN];
+    esp_err_t ret = wifi_ap_query(ssid, WIFI_SSID_MAXLEN);
+
+    cJSON_AddBoolToObject(resp_root, "wifi_ap_turned_on", ret == ESP_OK);
+
+    if (ret == ESP_OK) {
+        cJSON_AddStringToObject(resp_root, "wifi_ap_ssid", ssid);
+    }
 }
 
 static cJSON* json_get_parser(cJSON* req) {
@@ -208,6 +219,12 @@ static cJSON* json_get_parser(cJSON* req) {
         json_get_wifi_connect(resp_root, req);
     } else if (strcmp(req_method, "wifi_sta_disconnect") == 0) {
         wifi_sta_disconnect();
+    } else if (strcmp(req_method, "wifi_ap_on") == 0) {
+        cJSON_AddBoolToObject(resp_root, "return_value", wifi_ap_turn_on());
+    } else if (strcmp(req_method, "wifi_ap_off") == 0) {
+        cJSON_AddBoolToObject(resp_root, "return_value", wifi_ap_turn_off());
+    } else if (strcmp(req_method, "wifi_ap_status") == 0) {
+        json_get_wifi_ap_status(resp_root);
     }
 
     return resp_root;

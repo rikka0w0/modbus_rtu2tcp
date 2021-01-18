@@ -51,10 +51,6 @@ static ip4_addr_t s_ipv4_addr;
 static ip6_addr_t s_ipv6_addr;
 
 static struct wifi_cfg{
-    // Config
-    uint8_t sta_retry_max;
-    uint8_t sta_prefer_sta;
-
     // State
     uint8_t sta_retry_num;
     uint8_t apsta_stop_scan_flag;
@@ -98,10 +94,44 @@ static void wifi_sta_load_cfg(wifi_config_t* wifi_config) {
     ESP_ERROR_CHECK(cp_get_by_id(CFG_WIFI_PASS, (char*)wifi_config->sta.password, &pass_len));
 }
 
-static uint8_t wifi_ap_get_sta_num() {
+static uint8_t wifi_sta_retry_before_ap() {
+    uint8_t ret;
+    ESP_ERROR_CHECK(cp_get_u8_by_id(CFG_WIFI_STA_MAX_RETRY, &ret));
+    return ret;
+}
+
+static uint8_t wifi_sta_preferred() {
+    uint8_t ret;
+    ESP_ERROR_CHECK(cp_get_u8_by_id(CFG_WIFI_MODE, &ret));
+    return ret;
+}
+
+static void wifi_check_sta() {
+    wifi_mode_t wifi_mode;
     wifi_sta_list_t sta_list;
-    ESP_ERROR_CHECK(esp_wifi_ap_get_sta_list(&sta_list));
-    return sta_list.num;
+    wifi_ap_record_t ap_rec;
+    wifi_config_t wifi_config = {0};
+
+    // Turn of the AP if STA mode is preferred and no STA connects to the AP.
+    if (wifi_sta_preferred()) {
+        ESP_ERROR_CHECK(esp_wifi_get_mode(&wifi_mode));
+
+        if (wifi_mode == WIFI_MODE_APSTA) {
+            ESP_ERROR_CHECK(esp_wifi_ap_get_sta_list(&sta_list));
+
+            if (sta_list.num == 0) {
+                ESP_LOGI(AP_TAG, "Switch-off the backup AP. Enter STA-only mode.");
+                ESP_ERROR_CHECK(esp_wifi_set_mode(WIFI_MODE_STA));
+
+                if (esp_wifi_sta_get_ap_info(&ap_rec) != ESP_OK) {
+                    wifi_sta_load_cfg(&wifi_config);
+                    ESP_ERROR_CHECK(esp_wifi_set_config(ESP_IF_WIFI_STA, &wifi_config));
+                    ESP_ERROR_CHECK(esp_wifi_connect());
+                    ESP_LOGI(STA_TAG, "Reconnecting to %s", (char*) wifi_config.sta.ssid);
+                }
+            }
+        }
+    }
 }
 
 static void initialise_mdns(void) {
@@ -155,7 +185,7 @@ static void wifi_event_handler(void* arg, esp_event_base_t event_base,
         ESP_LOGI(TAG, "station "MACSTR" join, AID=%d",
                  MAC2STR(event->mac), event->aid);
     } else if (event_id == WIFI_EVENT_AP_STADISCONNECTED) {
-        xEventGroupSetBits(s_connect_event_group, WIFI_EGBIT_AP_STA_LEAVE);
+        wifi_check_sta();
         wifi_event_ap_stadisconnected_t* event = (wifi_event_ap_stadisconnected_t*) event_data;
         ESP_LOGI(TAG, "station "MACSTR" leave, AID=%d",
                  MAC2STR(event->mac), event->aid);
@@ -186,7 +216,7 @@ static void wifi_event_handler(void* arg, esp_event_base_t event_base,
         ESP_LOGI("STA_DISC", "%d", ((wifi_event_sta_disconnected_t*)event_data)->reason);
         xEventGroupSetBits(s_connect_event_group, WIFI_EGBIT_STA_DISC);
     } else if (event_id == WIFI_EVENT_STA_START) {
-        if (s_wifi_cfg.sta_prefer_sta) {
+        if (wifi_sta_preferred()) {
             ESP_ERROR_CHECK(esp_wifi_connect());
         }
     }
@@ -240,11 +270,6 @@ static void wifi_cfg_sta() {
     ESP_LOGI(TAG, "Connecting to %s...", wifi_config.sta.ssid);
 }
 
-static void wifi_reload_cfg() {
-    ESP_ERROR_CHECK(cp_get_u8_by_id(CFG_WIFI_STA_MAX_RETRY, &s_wifi_cfg.sta_retry_max));
-    ESP_ERROR_CHECK(cp_get_u8_by_id(CFG_WIFI_MODE, &s_wifi_cfg.sta_prefer_sta));
-}
-
 static void timer_sta_reconn_expire(xTimerHandle pxTimer) {
     xEventGroupSetBits(s_connect_event_group, WIFI_EGBIT_STA_RECONN);
 }
@@ -255,14 +280,9 @@ static void wifi_user_task(void* param) {
 
     s_wifi_cfg.sta_mutex_req = xSemaphoreCreateMutex();
     s_wifi_cfg.sta_conn_status = STA_DISC;
-    s_wifi_cfg.sta_ssid_req[0] = '\0';
-    s_wifi_cfg.sta_pass_req[0] = '\0';
 
     while (1) {
         EventBits_t bits = xEventGroupWaitBits(s_connect_event_group, WIFI_EGBIT_ALL, pdTRUE, pdFALSE, portMAX_DELAY);
-        if (bits & WIFI_EGBIT_CFG_CHANGED) {
-            wifi_reload_cfg();
-        }
 
         if (bits & WIFI_EGBIT_GOT_IPV4) {
             ESP_LOGI(TAG, "IPv4 address: " IPSTR, IP2STR(&s_ipv4_addr));
@@ -274,10 +294,13 @@ static void wifi_user_task(void* param) {
 
         if (bits & WIFI_EGBIT_STA_DISC) {
             s_wifi_cfg.sta_conn_status = STA_DISC;
-            ESP_LOGW(STA_TAG, "Lost connection to AP.");
-            if (s_wifi_cfg.sta_prefer_sta) {
+
+            ESP_ERROR_CHECK(esp_wifi_get_mode(&wifi_mode));
+            if (wifi_sta_preferred() && (wifi_mode == WIFI_MODE_STA || (wifi_mode == WIFI_MODE_APSTA && !s_wifi_cfg.apsta_stop_scan_flag))) {
                 xTimerStart(timer_sta_reconn, portMAX_DELAY);
             }
+
+            ESP_LOGW(STA_TAG, "Lost connection to AP.");
         }
 
         if (bits & WIFI_EGBIT_STA_RECONN) {
@@ -289,11 +312,12 @@ static void wifi_user_task(void* param) {
             }
 
             if (s_wifi_cfg.apsta_stop_scan_flag) {
+                s_wifi_cfg.sta_retry_num = 0;
                 s_wifi_cfg.apsta_stop_scan_flag = 0;
                 ESP_LOGI(AP_TAG, "AP got client, STA stops further reconnection retry.");
             }
 
-            if (s_wifi_cfg.sta_retry_num >= s_wifi_cfg.sta_retry_max) {
+            if (s_wifi_cfg.sta_retry_num >= wifi_sta_retry_before_ap()) {
                 // Switch to AP_STA mode and continue attempting...
 
                 if (wifi_mode == WIFI_MODE_STA) {
@@ -310,13 +334,7 @@ static void wifi_user_task(void* param) {
             s_wifi_cfg.sta_retry_num = 0;
             s_wifi_cfg.sta_conn_status = STA_CONNECTED;
 
-            if (s_wifi_cfg.sta_prefer_sta) {
-                ESP_ERROR_CHECK(esp_wifi_get_mode(&wifi_mode));
-                if (wifi_mode == WIFI_MODE_APSTA) {
-                    ESP_LOGI(AP_TAG, "Switch-off the backup AP. Enter STA-only mode.");
-                    ESP_ERROR_CHECK(esp_wifi_set_mode(WIFI_MODE_STA));
-                }
-            }
+            wifi_check_sta();
         }
 
         if (bits & WIFI_EGBIT_STA_CONN_REQ) {
@@ -361,8 +379,7 @@ void app_main() {
     ESP_ERROR_CHECK(start_webserver());
     modbus_tcp_server_create();
 
-    wifi_reload_cfg();
-    if (s_wifi_cfg.sta_prefer_sta) {
+    if (wifi_sta_preferred()) {
         // STA mode
         wifi_init_sta();
     } else {
@@ -399,6 +416,7 @@ esp_err_t wifi_sta_query_ap(char* ssid, size_t ssid_len) {
     }
 
     strncpy(ssid, (char*)ap_info.ssid, ssid_len);
+    ssid[ssid_len - 1] = '\0';
     return ESP_OK;
 }
 
@@ -433,6 +451,44 @@ uint8_t wifi_sta_query_status() {
 void wifi_sta_disconnect() {
     ESP_ERROR_CHECK(esp_wifi_disconnect());
     ESP_LOGI(STA_TAG, "wifi_sta_disconnect()");
+}
+
+uint8_t  wifi_ap_turn_on() {
+    wifi_init_softap();
+    ESP_LOGI(STA_TAG, "wifi_ap_turn_on()");
+    return 1;
+}
+
+uint8_t wifi_ap_turn_off() {
+    wifi_mode_t wifi_mode;
+    wifi_ap_record_t ap_rec;
+
+    ESP_LOGI(STA_TAG, "wifi_ap_turn_off()");
+
+    ESP_ERROR_CHECK(esp_wifi_get_mode(&wifi_mode));
+    if (wifi_mode == WIFI_MODE_APSTA && esp_wifi_sta_get_ap_info(&ap_rec) == ESP_OK) {
+        ESP_ERROR_CHECK(esp_wifi_set_mode(WIFI_MODE_STA));
+        return 1;
+    }
+
+    return 0;
+}
+
+esp_err_t wifi_ap_query(char* ssid, size_t ssid_len) {
+    wifi_mode_t wifi_mode;
+    wifi_config_t wifi_cfg;
+
+    ESP_ERROR_CHECK(esp_wifi_get_mode(&wifi_mode));
+    if (wifi_mode != WIFI_MODE_AP && wifi_mode != WIFI_MODE_APSTA) {
+        return ESP_ERR_INVALID_STATE;
+    }
+
+    if (esp_wifi_get_config(ESP_IF_WIFI_AP, &wifi_cfg) == ESP_OK) {
+        strncpy(ssid, (char*)wifi_cfg.ap.ssid, ssid_len);
+        ssid[ssid_len - 1] = '\0';
+    }
+
+    return ESP_OK;
 }
 
 esp_err_t cpcb_check_set_baudrate(uint32_t baudrate) {
