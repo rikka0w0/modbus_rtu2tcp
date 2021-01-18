@@ -26,17 +26,18 @@ typedef struct config_def {
 } config_def_t;
 
 static config_def_t config_defs[CFG_IDT_MAX] = {
-    {.name = "wifi_ssid",       .type = CFG_DATA_STR,   .default_val.str = NULL,    .validate.str = NULL},
-    {.name = "wifi_pass",       .type = CFG_DATA_STR,   .default_val.str = NULL,    .validate.str = NULL},
-    {.name = "uart_baud_rate",  .type = CFG_DATA_U32,   .default_val.u32 = 9600,    .validate.u32 = cpcb_check_set_baudrate},
-    {.name = "uart_parity",     .type = CFG_DATA_U8,    .default_val.u8 = 0,        .validate.u8 = cpcb_check_set_parity},
-    {.name = "uart_tx_delay",   .type = CFG_DATA_U32,   .default_val.u32 = 1,       .validate.u32 = cpcb_check_set_tx_delay},
+    [CFG_WIFI_SSID] =           {.name = "wifi_sta_ssid",       .type = CFG_DATA_STR,   .default_val.str = NULL,    .validate.str = NULL},
+    [CFG_WIFI_PASS] =           {.name = "wifi_sta_pass",       .type = CFG_DATA_STR,   .default_val.str = NULL,    .validate.str = NULL},
+    [CFG_WIFI_STA_MAX_RETRY] =  {.name = "wifi_sta_retry",      .type = CFG_DATA_U8,    .default_val.u8 = 5,        .validate.u8 = NULL},
+    [CFG_WIFI_SSID_AP] =        {.name = "wifi_ap_ssid",    .type = CFG_DATA_STR,   .default_val.str = NULL,    .validate.str = NULL},
+    [CFG_WIFI_PASS_AP] =        {.name = "wifi_ap_pass",    .type = CFG_DATA_STR,   .default_val.str = WIFI_AP_PASS_DEFAULT,    .validate.str = NULL},
+    [CFG_WIFI_AUTH_AP] =        {.name = "wifi_ap_auth",    .type = CFG_DATA_U8,    .default_val.u8 = 4,        .validate.u8 = cpcb_check_ap_auth},
+    [CFG_WIFI_MAX_CONN_AP] =    {.name = "wifi_ap_conn",    .type = CFG_DATA_U8,    .default_val.u8 = WIFI_AP_MAX_CONN_DEFAULT, .validate.u8 = NULL},
+    [CFG_WIFI_MODE] =           {.name = "wifi_mode",       .type = CFG_DATA_U8,    .default_val.u8 = 1,        .validate.u8 = NULL},
 
-    {.name = "wifi_mode",       .type = CFG_DATA_U8,    .default_val.u8 = 1,        .validate.u8 = NULL},
-    {.name = "wifi_ssid_ap",    .type = CFG_DATA_STR,   .default_val.str = NULL,    .validate.str = NULL},
-    {.name = "wifi_pass_ap",    .type = CFG_DATA_STR,   .default_val.str = WIFI_AP_PASS_DEFAULT,    .validate.str = NULL},
-    {.name = "wifi_auth_ap",    .type = CFG_DATA_U8,    .default_val.u8 = 4,        .validate.u8 = cpcb_check_ap_auth},
-    {.name = "wifi_conn_ap",.type = CFG_DATA_U8,    .default_val.u8 = WIFI_AP_MAX_CONN_DEFAULT, .validate.u8 = NULL},
+    [CFG_UART_BAUD] =           {.name = "uart_baud_rate",  .type = CFG_DATA_U32,   .default_val.u32 = 9600,    .validate.u32 = cpcb_check_set_baudrate},
+    [CFG_UART_PARITY] =         {.name = "uart_parity",     .type = CFG_DATA_U8,    .default_val.u8 = 0,        .validate.u8 = cpcb_check_set_parity},
+    [CFG_UART_TX_DELAY] =       {.name = "uart_tx_delay",   .type = CFG_DATA_U32,   .default_val.u32 = 1,       .validate.u32 = cpcb_check_set_tx_delay},
 };
 
 enum cfg_data_idt cp_id_from_name(const char* name) {

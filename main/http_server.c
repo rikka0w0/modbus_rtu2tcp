@@ -122,13 +122,12 @@ httpd_uri_t config_get = {
     .user_ctx  = "Ok~~~"
 };
 
-static cJSON* json_get_get_fields(cJSON* req_array) {
+static void json_get_get_fields(cJSON* resp_root, cJSON* req_array) {
     char param[HTTP_PARAM_MAXLEN];
 
     if (req_array == NULL)
-        return NULL;
+        return;
 
-    cJSON* resp_root = cJSON_CreateObject();
     cJSON* req_iterator = NULL;
     cJSON_ArrayForEach(req_iterator, req_array) {
         char* field_name = cJSON_GetStringValue(req_iterator);
@@ -136,19 +135,79 @@ static cJSON* json_get_get_fields(cJSON* req_array) {
         if (cp_get_by_id_to_readable(cfg_id, param, sizeof(param)) == ESP_OK) {
             cJSON_AddStringToObject(resp_root, field_name, param);
         }
-        free(field_name);
     }
-    return resp_root;
 }
 
-static cJSON* json_get_parser(const cJSON* req) {
-    cJSON* resp_root = NULL;
+static const char* const wifi_sta_status_str[] = {"disconnected", "connecting", "connected"};
 
-    cJSON* req_method_node = cJSON_GetObjectItem(req, "method");
-    char* req_method = cJSON_GetStringValue(req_method_node);
+static void json_get_wifi_sta_status(cJSON* resp_root) {
+    char ssid[WIFI_SSID_MAXLEN];
+
+    cJSON_AddStringToObject(resp_root, "wifi_sta_status", wifi_sta_status_str[wifi_sta_query_status()]);
+
+    if (wifi_sta_query_ap(ssid, sizeof(ssid)) == ESP_OK) {
+        cJSON_AddStringToObject(resp_root, "wifi_sta_ap_ssid", ssid);
+    }
+}
+
+static void json_get_wifi_connect(cJSON* resp_root, cJSON* req) {
+    cJSON* req_item_node;
+    char sta_ssid_req[WIFI_SSID_MAXLEN];
+    char sta_pass_req[WIFI_PASS_MAXLEN];
+    int use_prev_cfg = 0;
+
+    sta_ssid_req[0] = '\0';
+    sta_pass_req[0] = '\0';
+
+    req_item_node = cJSON_GetObjectItem(req, "wifi_sta_ssid");
+    if (req_item_node != NULL) {
+        use_prev_cfg = 1;
+
+        strncpy(sta_ssid_req, cJSON_GetStringValue(req_item_node), WIFI_SSID_MAXLEN);
+        // Trucate the string if it is greater than WIFI_SSID_MAXLEN-1
+        sta_ssid_req[WIFI_SSID_MAXLEN-1] = '\0';
+        cJSON_AddStringToObject(resp_root, "wifi_sta_ssid", sta_ssid_req);
+
+        req_item_node = cJSON_GetObjectItem(req, "wifi_sta_pass");
+        if (req_item_node != NULL) {
+            strncpy(sta_pass_req, cJSON_GetStringValue(req_item_node), WIFI_PASS_MAXLEN);
+            // Trucate the string if it is greater than WIFI_PASS_MAXLEN-1
+            sta_pass_req[WIFI_PASS_MAXLEN-1] = '\0';
+            cJSON_AddStringToObject(resp_root, "wifi_sta_pass", sta_pass_req);
+        }
+    }
+
+    cJSON_AddBoolToObject(resp_root, "wifi_sta_use_prev_cfg", use_prev_cfg);
+    cJSON_AddBoolToObject(resp_root, "wifi_sta_conn_cmd_result",
+                          wifi_sta_connect(sta_ssid_req, sta_pass_req));
+}
+
+static cJSON* json_get_parser(cJSON* req) {
+    // Duplicate "method" field to the response
+    cJSON* req_item_node = cJSON_GetObjectItem(req, "method");
+    if (req_item_node == NULL) {
+        return NULL;
+    }
+    cJSON* resp_root = cJSON_CreateObject();
+    cJSON_DetachItemViaPointer(req, req_item_node);
+    cJSON_AddItemToObject(resp_root, "method", req_item_node);
+    char* req_method = cJSON_GetStringValue(req_item_node);
+
+    // Copy trans_id
+    req_item_node = cJSON_GetObjectItem(req, "trans_id");
+    if (req_item_node != NULL) {
+        cJSON_DetachItemViaPointer(req, req_item_node);
+        cJSON_AddItemToObject(resp_root, "trans_id", req_item_node);
+    }
 
     if (strcmp(req_method, "get") == 0) {
-        resp_root = json_get_get_fields(cJSON_GetObjectItem(req, "fields"));
+        json_get_get_fields(resp_root, cJSON_GetObjectItem(req, "fields"));
+    } else if (strcmp(req_method, "wifi_sta_status") == 0) {
+        json_get_wifi_sta_status(resp_root);
+    } else if (strcmp(req_method, "wifi_sta_connect") == 0) {
+        json_get_wifi_connect(resp_root, req);
+    } else if (strcmp(req_method, "wifi_sta_disconnect") == 0) {
+        wifi_sta_disconnect();
     }
 
     return resp_root;
@@ -193,7 +252,7 @@ static esp_err_t json_get_handler(httpd_req_t *req) {
     // Generate and send the response
     cJSON* json_resp = json_get_parser(json_req);
     if (json_resp) {
-        buf = cJSON_Print(json_resp);
+        buf = cJSON_PrintUnformatted(json_resp);
         cJSON_Delete(json_resp);
         ret = httpd_resp_send(req, buf, strlen(buf));
         free(buf);
@@ -230,8 +289,6 @@ static const char* json_post_set_fields(cJSON* req_array) {
         if (cp_set_by_id_from_raw(cfg_id, field_value) != ESP_OK) {
             ret = HTTPD_404;
         }
-        free(field_name);
-        free(field_value);
     }
     return ret;
 }

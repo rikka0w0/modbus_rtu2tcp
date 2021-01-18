@@ -1,78 +1,260 @@
 <!DOCTYPE html>
 <html>
+<head>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+body {font-family: Arial;}
+
+/* Style the tab */
+.tab {
+  overflow: hidden;
+  border: 1px solid #ccc;
+  background-color: #f1f1f1;
+}
+
+/* Style the buttons inside the tab */
+.tab button {
+  background-color: inherit;
+  float: left;
+  border: none;
+  outline: none;
+  cursor: pointer;
+  padding: 14px 16px;
+  transition: 0.3s;
+  font-size: 17px;
+}
+
+/* Change background color of buttons on hover */
+.tab button:hover {
+  background-color: #ddd;
+}
+
+/* Create an active/current tablink class */
+.tab button.active {
+  background-color: #ccc;
+}
+
+/* Style the tab content */
+.tabcontent {
+  display: none;
+  padding: 6px 12px;
+  border: 1px solid #ccc;
+  border-top: none;
+}
+
+/* Fieldset and Legend */
+fieldset {
+    margin: 8px;
+    border: 1px solid silver;
+    padding: 8px;    
+    border-radius: 4px;
+}
+
+legend {
+    padding: 2px;    
+}
+</style>
+</head>
+
+
 <body>
 
 <title>Modbus RTU2TCP Configuration</title>
 <h2>Modbus RTU2TCP Configuration</h2>
 
-<label for="wifi_mode">Wifi mode:</label><br>
-<select id="wifi_mode">
-    <option value = "0">AP mode only</option>
-    <option value = "1">STA mode first, AP mode as backup</option>
-</select><br>
-<label for="wifi_ssid">Wifi SSID:</label><br>
-<input type="text" id="wifi_ssid"><br>
-<label for="wifi_pass">Wifi Password:</label><br>
-<input type="text" id="wifi_pass"><br><br>
+<!-- Tab Control -->
+<div class="tab">
+  <button class="tablinks" onclick="openTab(event, 'wifi')" id="defaultOpen">Wifi</button>
+  <button class="tablinks" onclick="openTab(event, 'uart')">Uart</button>
+  <button class="tablinks" onclick="openTab(event, 'log')">Log</button>
+</div>
 
-<label for="wifi_ssid_ap">AP Mode SSID:</label><br>
-Leave empty to use the default SSID (Modbus RTU2TCP [MAC])<br>
-<input type="text" id="wifi_ssid_ap"><br>
-<label for="wifi_pass_ap">AP Mode Password:</label><br>
-<input type="text" id="wifi_pass_ap"><br>
-<label for="wifi_auth_ap">AP Auth Mode:</label><br>
-<select id="wifi_auth_ap">
-    <option value = "0">Open, No password</option>
-    <option value = "1">WEP</option>
-    <option value = "2">WPA_PSK</option>
-    <option value = "3">WPA2_PSK</option>
-    <option value = "4">WPA_WPA2_PSK</option>
-    <option value = "5">WPA2_ENTERPRISE</option>
-    <option value = "6">WPA3_PSK</option>
-    <option value = "7">WPA2_WPA3_PSK</option>
-</select><br>
-<label for="wifi_conn_ap">AP Max No. of Clients:</label><br>
-<input type="text" id="wifi_conn_ap"><br>
+<div id="wifi" class="tabcontent">
+	<label for="wifi_mode">Wifi mode:</label><br>
+	<select id="wifi_mode">
+	    <option value = "0">AP mode only</option>
+	    <option value = "1">Prefer STA mode, AP mode as backup</option>
+	</select>
+	<br>
+	<br>
+	<fieldset> <legend>Wifi Station Mode</legend>
+		<div id="wifi_sta_status"></div>
+		<label for="wifi_sta_ssid">Wifi SSID:</label>
+		<button onclick="wifiConnect()">Connect</button><button onclick="wifiDisconnect()">Disconnect</button><br>
+		<input type="text" id="wifi_sta_ssid"><br>
+		<label for="wifi_sta_pass">Wifi Password:</label><br>
+		<input type="text" id="wifi_sta_pass"><br>
+		<label for="wifi_sta_retry">No. of reconnection before switch enable AP mode:</label><br>
+		<input type="text" id="wifi_sta_retry"><br>
+	</fieldset>
+	
+	<fieldset> <legend>Wifi AP Mode</legend>
+		<label for="wifi_ap_ssid">AP Mode SSID:</label><br>
+		Leave empty to use the default SSID (Modbus RTU2TCP [MAC])<br>
+		<input type="text" id="wifi_ap_ssid"><br>
+		<label for="wifi_ap_pass">AP Mode Password:</label><br>
+		<input type="text" id="wifi_ap_pass"><br>
+		<label for="wifi_ap_auth">AP Auth Mode:</label><br>
+		<select id="wifi_ap_auth">
+		    <option value = "0">Open, No password</option>
+		    <option value = "1">WEP</option>
+		    <option value = "2">WPA_PSK</option>
+		    <option value = "3">WPA2_PSK</option>
+		    <option value = "4">WPA_WPA2_PSK</option>
+		    <option value = "5">WPA2_ENTERPRISE</option>
+		    <option value = "6">WPA3_PSK</option>
+		    <option value = "7">WPA2_WPA3_PSK</option>
+		</select><br>
+		<label for="wifi_ap_conn">AP Max No. of Clients:</label><br>
+		<input type="text" id="wifi_ap_conn">
+	</fieldset>
+</div>
 
-<br>
-<label for="uart_baud_rate">Baud rate:</label><br>
-<select id="uart_baud_rate">
-    <option>2400</option>
-    <option>4800</option>
-    <option>9600</option>
-    <option>14400</option>
-    <option>19200</option>
-    <option>28800</option>
-    <option>38400</option>
-    <option>57600</option>
-    <option>115200</option>
-    <option>128000</option>
-    <option>256000</option>
-    <option>921600</option>
-</select><br>
-<label for="uart_parity">Parity:</label><br>
-<select id="uart_parity">
-    <option value="0">None</option>
-    <option value="1">Odd</option>
-    <option value="2">Even</option>
-</select><br>
-<label for="uart_tx_delay">Tx Delay(us):</label><br>
-<input type="text" id="uart_tx_delay" name="uart_tx_delay"><br><br>
+<div id="uart" class="tabcontent">
+	<label for="uart_baud_rate">Baud rate:</label><br>
+	<select id="uart_baud_rate">
+	    <option>2400</option>
+	    <option>4800</option>
+	    <option>9600</option>
+	    <option>14400</option>
+	    <option>19200</option>
+	    <option>28800</option>
+	    <option>38400</option>
+	    <option>57600</option>
+	    <option>115200</option>
+	    <option>128000</option>
+	    <option>256000</option>
+	    <option>921600</option>
+	</select><br>
+	<label for="uart_parity">Parity:</label><br>
+	<select id="uart_parity">
+	    <option value="0">None</option>
+	    <option value="1">Odd</option>
+	    <option value="2">Even</option>
+	</select><br>
+	<label for="uart_tx_delay">Tx Delay(us):</label><br>
+	<input type="text" id="uart_tx_delay" name="uart_tx_delay"><br><br>
+</div>
 
-
-<button onclick="applySettings()">Apply</button>
-
-<form action="/restart?confirm=yes">
-	<input type="submit" value="Restart" /><br>
-	<input type="checkbox" id="confirm" name="confirm" value="yes">Confirm restart</input>
-</form>
-
-<div id="demo">
-QwQ
+<div id="log" class="tabcontent">
+	<button onclick="clearJsonLog()">Clear JSON Log</button>
+	<fieldset> <legend>JSON Log</legend>
+		<div id="json_log" style="white-space: pre-wrap;">
+		</div>
+	</fieldset>
 </div>
 
 <script>
-var fields = ["wifi_mode", "wifi_ssid", "wifi_pass", "wifi_ssid_ap", "wifi_pass_ap", "wifi_auth_ap", "wifi_conn_ap", "uart_baud_rate", "uart_parity", "uart_tx_delay"];
+function openTab(evt, cityName) {
+	var i, tabcontent, tablinks;
+	tabcontent = document.getElementsByClassName("tabcontent");
+	for (i = 0; i < tabcontent.length; i++) {
+		tabcontent[i].style.display = "none";
+	}
+	tablinks = document.getElementsByClassName("tablinks");
+	for (i = 0; i < tablinks.length; i++) {
+		tablinks[i].className = tablinks[i].className.replace(" active", "");
+	}
+	document.getElementById(cityName).style.display = "block";
+	evt.currentTarget.className += " active";
+}
+document.getElementsByClassName("tablinks")[0].click();
+</script>
+<!-- End of Tab Control -->
+
+<br>
+
+<button onclick="applySettings()">Save Configuration</button>
+
+<form action="/restart?confirm=yes">
+	<input type="submit" value="Restart" />
+	<input type="checkbox" id="confirm" name="confirm" value="yes">Confirm restart</input>
+</form>
+<br>
+
+<script>
+var debug = true;
+var fields = ["wifi_sta_ssid", "wifi_sta_pass", "wifi_sta_retry", "wifi_ap_ssid", "wifi_ap_pass", "wifi_ap_auth", "wifi_ap_conn", "wifi_mode", "uart_baud_rate", "uart_parity", "uart_tx_delay"];
+
+// Handlers
+function updateFields(resp) {
+	fields.forEach(function(key) {
+		document.getElementById(key).value = resp[key];
+	});
+}
+
+function updateStaStatus(resp) {
+	if (resp["wifi_sta_status"] == "connected") {
+		document.getElementById("wifi_sta_status").innerText = "Connected to " + resp["wifi_sta_ap_ssid"];
+	} else {
+		document.getElementById("wifi_sta_status").innerText = resp["wifi_sta_status"];
+	}
+}
+
+// XMLHttpRequest queue
+var xhttpQueue = new Array();
+var xhttp = new XMLHttpRequest();
+xhttp.onreadystatechange = function() {
+	if (this.readyState != 4)
+		return;
+
+	if (this.status == 200) {
+		var resp = JSON.parse(xhttp.responseText);
+
+		if (debug && resp["method"] != "wifi_sta_status") {
+			document.getElementById("json_log").textContent += "<<<<<<<<<<<<<<<<<<<<<<<<<<";
+			document.getElementById("json_log").textContent += "\n";
+			document.getElementById("json_log").textContent += xhttp.responseText;
+			document.getElementById("json_log").textContent += "\n";
+		}
+
+		if (resp["method"] === "get") {
+			updateFields(resp);
+		} else if (resp["method"] === "wifi_sta_status") {
+			updateStaStatus(resp);
+		}
+	}
+
+	xhttpQueue.shift();
+	if (xhttpQueue.length > 0) {
+		var req = xhttpQueue[0];
+		xhttp_send_internal(req["method"], req["payload"]);
+	}
+};
+
+function xhttp_send_internal(method, json_payload) {
+	if (method === "get") {
+		xhttp.open("get", "/json_get?json=" + encodeURIComponent(JSON.stringify(json_payload)) + "&test=qwq", true);
+		xhttp.send();
+	} else if (method === "post") {
+		xhttp.open("post", "/json_post", true);
+		xhttp.setRequestHeader("Content-Type", "application/json;charset=UTF-8");
+		xhttp.send(JSON.stringify(json_payload));
+	}
+}
+
+function xhttp_send(method, json_payload) {
+	var req = {};
+	req["method"] = method;
+	req["payload"] = json_payload;
+	xhttpQueue.push(req);
+
+	if (xhttpQueue.length == 1) {
+		xhttp_send_internal(method, json_payload);
+	}
+	
+	if (debug && json_payload["method"] != "wifi_sta_status") {
+		document.getElementById("json_log").textContent += ">>>" + method + ">>>>>>>>>>>>>>>>>";
+		document.getElementById("json_log").textContent += "\n";
+		document.getElementById("json_log").textContent += JSON.stringify(json_payload);
+		document.getElementById("json_log").textContent += "\n";
+	}
+}
+
+// Button callbacks
+function clearJsonLog() {
+	document.getElementById("json_log").textContent = "";
+}
 
 function applySettings() {
 	var json_req = {method: "set", fields: {}};
@@ -80,16 +262,19 @@ function applySettings() {
 	fields.forEach(function(key) {
 		fields_req[key] = document.getElementById(key).value;
 	});
+	xhttp_send("post", json_req);
+}
 
-	var xhttp = new XMLHttpRequest();
-	xhttp.onreadystatechange = function() {
-		if (this.readyState == 4 && this.status == 200) {
-			document.getElementById("demo").innerText += "qwq\n";
-		}
-	};
-	xhttp.open("post", "/json_post", true);
-	xhttp.setRequestHeader("Content-Type", "application/json;charset=UTF-8");
-	xhttp.send(JSON.stringify(json_req));
+function wifiConnect() {
+	var json_req = {method: "wifi_sta_connect"};
+	json_req["wifi_sta_ssid"] = document.getElementById("wifi_sta_ssid").value;
+	json_req["wifi_sta_pass"] = document.getElementById("wifi_sta_pass").value;
+	xhttp_send("get", json_req);
+}
+
+function wifiDisconnect() {
+	var json_req = {method: "wifi_sta_disconnect"};
+	xhttp_send("get", json_req);
 }
 
 function readSettings() {
@@ -97,22 +282,17 @@ function readSettings() {
 	fields.forEach(function(key) {
 		json_req["fields"].push(key);
 	});
+	xhttp_send("get", json_req);
+}
 
-	var xhttp = new XMLHttpRequest();
-	xhttp.onreadystatechange = function() {
-		if (this.readyState == 4 && this.status == 200) {
-			var resp = JSON.parse(xhttp.responseText);
-			Object.keys(resp).forEach(function(key) {
-				document.getElementById(key).value = resp[key];
-			});
-		}
-	};
-	xhttp.open("get", "/json_get?json=" + encodeURIComponent(JSON.stringify(json_req)) + "&test=qwq", true);
-//xhttp.setRequestHeader("Content-Type", "application/json;charset=UTF-8");
-	xhttp.send();
+function readStaStatus() {
+	var json_req = {method: "wifi_sta_status"};
+	xhttp_send("get", json_req);
 }
 
 readSettings();
+readStaStatus();
+setInterval(readStaStatus, 1000);
 </script>
 
 </body>

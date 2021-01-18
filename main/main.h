@@ -29,15 +29,16 @@ enum cfg_data_type {
 enum cfg_data_idt {
     CFG_WIFI_SSID,
     CFG_WIFI_PASS,
-    CFG_UART_BAUD,
-    CFG_UART_PARITY,
-    CFG_UART_TX_DELAY,
-
-    CFG_WIFI_MODE,
+    CFG_WIFI_STA_MAX_RETRY,
     CFG_WIFI_SSID_AP,
     CFG_WIFI_PASS_AP,
     CFG_WIFI_AUTH_AP,
     CFG_WIFI_MAX_CONN_AP,
+    CFG_WIFI_MODE,
+
+    CFG_UART_BAUD,
+    CFG_UART_PARITY,
+    CFG_UART_TX_DELAY,
 
     CFG_IDT_MAX
 };
@@ -59,6 +60,10 @@ esp_err_t cp_get_by_id_to_readable(enum cfg_data_idt id, char* buf, size_t maxle
 
 esp_err_t start_webserver(void);
 void stop_webserver(void);
+esp_err_t wifi_sta_query_ap(char* ssid, size_t ssid_len);
+uint8_t wifi_sta_connect(char ssid[WIFI_SSID_MAXLEN], char password[WIFI_PASS_MAXLEN]);
+uint8_t wifi_sta_query_status();
+void wifi_sta_disconnect();
 
 // Config provider callbacks
 esp_err_t cpcb_check_set_baudrate(uint32_t baudrate);
