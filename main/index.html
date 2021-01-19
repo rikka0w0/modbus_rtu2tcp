@@ -54,21 +54,26 @@ legend {
     padding: 2px;    
 }
 
-// Panel
-.content_column {
+/* Two columns */
+.container_two_column * {
   box-sizing: border-box;
 }
 
 /* Create two equal columns that floats next to each other */
-.content_column {
+.column_left {
   float: left;
   width: 50%;
   padding: 10px;
-  height: 300px; /* Should be removed. Only for demonstration */
+}
+
+.column_right {
+  float: left;
+  width: 50%;
+  padding: 10px;
 }
 
 /* Clear floats after the columns */
-.content_row:after {
+.container_two_column:after {
   content: "";
   display: table;
   clear: both;
@@ -76,10 +81,16 @@ legend {
 
 /* Responsive layout - makes the two columns stack on top of each other instead of next to each other */
 @media screen and (max-width: 600px) {
-  .content_column {
+  .column_left {
+    width: 100%;
+  }
+  
+  .column_right {
     width: 100%;
   }
 }
+
+
 </style>
 </head>
 
@@ -94,6 +105,7 @@ legend {
   <button class="tablinks" onclick="openTab(event, 'wifi')" id="defaultOpen">Wifi</button>
   <button class="tablinks" onclick="openTab(event, 'uart')">Uart</button>
   <button class="tablinks" onclick="openTab(event, 'log')">Log</button>
+  <button class="tablinks" onclick="openTab(event, 'about')">About</button>
 </div>
 
 <div id="wifi" class="tabcontent">
@@ -105,42 +117,58 @@ legend {
 	<br>
 	<br>
 	
-	<fieldset> <legend>Wifi Station Mode</legend>  	
-		<label for="wifi_sta_ssid">Wifi SSID:</label><br>
-		<input type="text" id="wifi_sta_ssid"><br>
-		<label for="wifi_sta_pass">Wifi Password:</label><br>
-		<input type="text" id="wifi_sta_pass"><br>
-		<label for="wifi_sta_retry">No. of reconnection before switch enable AP mode:</label><br>
-		<input type="text" id="wifi_sta_retry"><br>
-		<br>
-		Only avaliable in AP-only mode, If used in STA mode, loss of access may happen.<br>
-		<button onclick="wifiConnect()">Connect</button><button onclick="wifiDisconnect()">Disconnect</button><br>
-		<div id="wifi_sta_status"></div>
+
+	<fieldset> <legend>Wifi Station Mode</legend>
+		<div class="container_two_column">
+			<div class="column_left">
+				<label for="wifi_sta_ssid">Wifi SSID:</label><br>
+				<input type="text" id="wifi_sta_ssid"><br>
+				<label for="wifi_sta_pass">Wifi Password:</label><br>
+				<input type="text" id="wifi_sta_pass"><br>
+				<label for="wifi_sta_retry">No. of reconnection before switch enable AP mode:</label><br>
+				<input type="text" id="wifi_sta_retry"><br>
+				<br>
+				<button onclick="wifiConnect()">Connect</button><button onclick="wifiDisconnect()">Disconnect</button><br>
+  			</div>
+  			<div class="column_right" style="background-color:#bbb;">
+				<label>Wifi station status:</label><br>
+				<div id="wifi_sta_status" style="white-space: pre-wrap;"></div>
+  			</div>
+		</div>
 	</fieldset>
 
 	<fieldset> <legend>Wifi AP Mode</legend>
-		<label for="wifi_ap_ssid">AP Mode SSID:</label><br>
-		Leave empty to use the default SSID (Modbus RTU2TCP [MAC])<br>
-		<input type="text" id="wifi_ap_ssid"><br>
-		<label for="wifi_ap_pass">AP Mode Password:</label><br>
-		<input type="text" id="wifi_ap_pass"><br>
-		<label for="wifi_ap_auth">AP Auth Mode:</label><br>
-		<select id="wifi_ap_auth">
-		    <option value = "0">Open, No password</option>
-		    <option value = "1">WEP</option>
-		    <option value = "2">WPA_PSK</option>
-		    <option value = "3">WPA2_PSK</option>
-		    <option value = "4">WPA_WPA2_PSK</option>
-		    <option value = "5">WPA2_ENTERPRISE</option>
-		    <option value = "6">WPA3_PSK</option>
-		    <option value = "7">WPA2_WPA3_PSK</option>
-		</select><br>
-		<label for="wifi_ap_conn">AP Max No. of Clients:</label><br>
-		<input type="text" id="wifi_ap_conn"><br>
-		<br>
-		<button onclick="apTurnOn()">Turn on</button><button onclick="apTurnOff()">Turn off</button><br>
-		<div id="wifi_ap_status"></div>
+		<div class="container_two_column">
+			<div class="column_left">
+				<label for="wifi_ap_ssid">AP Mode SSID:</label><br>
+				Leave empty to use the default SSID (Modbus RTU2TCP [MAC])<br>
+				<input type="text" id="wifi_ap_ssid"><br>
+				<label for="wifi_ap_pass">AP Mode Password:</label><br>
+				<input type="text" id="wifi_ap_pass"><br>
+				<label for="wifi_ap_auth">AP Auth Mode:</label><br>
+				<select id="wifi_ap_auth">
+				    <option value = "0">Open, No password</option>
+				    <option value = "1">WEP</option>
+				    <option value = "2">WPA_PSK</option>
+				    <option value = "3">WPA2_PSK</option>
+				    <option value = "4">WPA_WPA2_PSK</option>
+				    <option value = "5">WPA2_ENTERPRISE</option>
+				    <option value = "6">WPA3_PSK</option>
+				    <option value = "7">WPA2_WPA3_PSK</option>
+				</select><br>
+				<label for="wifi_ap_conn">AP Max No. of Clients:</label><br>
+				<input type="text" id="wifi_ap_conn"><br>
+				<br>
+				<button onclick="apTurnOn()">Turn on</button><button onclick="apTurnOff()">Turn off</button><br>
+  			</div>
+  			<div class="column_right" style="background-color:#bbb;">
+  				<label>Wifi AP status:</label><br>
+				<div id="wifi_ap_status" style="white-space: pre-wrap;"></div>
+		  	</div>
+		</div>
 	</fieldset>
+	<br>
+	<p style="color:red">In order to prevent lost of access, DO NOT disconnect from the external AP and switch off the built-in AP at the same time. </p>
 </div>
 
 <div id="uart" class="tabcontent">
@@ -177,6 +205,12 @@ legend {
 	</fieldset>
 </div>
 
+<div id="about" class="tabcontent">
+	<img src="https://github.com/rikka0w0.png?size=460"><br>
+	Designed by <a href="https://github.com/rikka0w0/">Rikka0w0</a>.<br>
+	<a href="https://github.com/rikka0w0/modbus_rtu2tcp/">Github Repo</a> of this Project<br>
+</div>
+
 <script>
 function openTab(evt, cityName) {
 	var i, tabcontent, tablinks;
@@ -209,6 +243,10 @@ document.getElementsByClassName("tablinks")[0].click();
 var debug = true;
 var fields = ["wifi_sta_ssid", "wifi_sta_pass", "wifi_sta_retry", "wifi_ap_ssid", "wifi_ap_pass", "wifi_ap_auth", "wifi_ap_conn", "wifi_mode", "uart_baud_rate", "uart_parity", "uart_tx_delay"];
 
+function canLog(method) {
+	return debug && method != "wifi_sta_status" && method != "wifi_ap_status";
+}
+
 // Handlers
 function updateFields(resp) {
 	fields.forEach(function(key) {
@@ -217,19 +255,43 @@ function updateFields(resp) {
 }
 
 function updateStaStatus(resp) {
+	var old = document.getElementById("wifi_sta_status").innerText;
+	var txt;
 	if (resp["wifi_sta_status"] == "connected") {
-		document.getElementById("wifi_sta_status").innerText = "Connected to \"" + resp["wifi_sta_ap_ssid"] +"\"";
+		txt = "Connected to: \"" + resp["wifi_sta_ap_ssid"] +"\"\n";
+		txt += "IPv4 Address: \"" + resp["wifi_sta_ip4_address"] +"\"\n";
+		txt += "IPv4 Netmask: \"" + resp["wifi_sta_ip4_netmask"] +"\"\n";
+		txt += "IPv4 Gateway: \"" + resp["wifi_sta_ip4_gateway"] +"\"\n";
+		resp["wifi_sta_ip6_address"] .forEach(function(addr) {
+			txt += "IPv6 Address: \"" + addr +"\"\n";
+		});
 	} else {
-		document.getElementById("wifi_sta_status").innerText = resp["wifi_sta_status"];
+		 txt = resp["wifi_sta_status"];
+	}
+
+	if (txt != old) {
+		document.getElementById("wifi_sta_status").innerText = txt;
 	}
 }
 
 function updateApStatus(resp) {
+	var old = document.getElementById("wifi_ap_status").innerText;
+	var txt;
 	if (resp["wifi_ap_turned_on"]) {
-		document.getElementById("wifi_ap_status").innerText = "Broadcasting with SSID: \"" + resp["wifi_ap_ssid"] +"\"";
+		txt = "Broadcasting with SSID \"" + resp["wifi_ap_ssid"] +"\"\n";
+		txt += "IPv4 Address: \"" + resp["wifi_ap_ip4_address"] +"\"\n";
+		txt += "IPv4 Netmask: \"" + resp["wifi_ap_ip4_netmask"] +"\"\n";
+		txt += "IPv4 Gateway: \"" + resp["wifi_ap_ip4_gateway"] +"\"\n";
+		resp["wifi_ap_ip6_address"] .forEach(function(addr) {
+			txt += "IPv6 Address: \"" + addr +"\"\n";
+		});
 	} else {
-		document.getElementById("wifi_ap_status").innerText = "Turned off";
+		 txt = "Turned off";
 	}
+
+	if (txt != old) {
+		document.getElementById("wifi_ap_status").innerText = txt;
+	}	
 }
 
 // XMLHttpRequest queue
@@ -242,7 +304,7 @@ xhttp.onreadystatechange = function() {
 	if (this.status == 200) {
 		var resp = JSON.parse(xhttp.responseText);
 
-		if (debug && resp["method"] != "wifi_sta_status") {
+		if (canLog(resp["method"])) {
 			document.getElementById("json_log").textContent += "<<<<<<<<<<<<<<<<<<<<<<<<<<";
 			document.getElementById("json_log").textContent += "\n";
 			document.getElementById("json_log").textContent += xhttp.responseText;
@@ -286,7 +348,7 @@ function xhttp_send(method, json_payload) {
 		xhttp_send_internal(method, json_payload);
 	}
 	
-	if (debug && json_payload["method"] != "wifi_sta_status") {
+	if (canLog(json_payload["method"])) {
 		document.getElementById("json_log").textContent += ">>>" + method + ">>>>>>>>>>>>>>>>>";
 		document.getElementById("json_log").textContent += "\n";
 		document.getElementById("json_log").textContent += JSON.stringify(json_payload);

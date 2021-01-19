@@ -27,6 +27,8 @@ static const char *TAG="APP";
 
 static httpd_handle_t server = NULL;
 
+static const char* json_post_set_fields(cJSON* req_array);
+
 esp_err_t index_get_handler(httpd_req_t *req) {
     httpd_resp_send(req, index_html_start, strlen(index_html_start));
     return ESP_OK;
@@ -142,11 +144,25 @@ static const char* const wifi_sta_status_str[] = {"disconnected", "connecting", 
 
 static void json_get_wifi_sta_status(cJSON* resp_root) {
     char ssid[WIFI_SSID_MAXLEN];
+    ip_info_t ip_info;
 
     cJSON_AddStringToObject(resp_root, "wifi_sta_status", wifi_sta_status_str[wifi_sta_query_status()]);
 
     if (wifi_sta_query_ap(ssid, sizeof(ssid)) == ESP_OK) {
         cJSON_AddStringToObject(resp_root, "wifi_sta_ap_ssid", ssid);
+
+        if (wifi_query_ip_info(0, &ip_info) == ESP_OK) {
+            cJSON_AddStringToObject(resp_root, "wifi_sta_ip4_address", ip_info.ip4_addr);
+            cJSON_AddStringToObject(resp_root, "wifi_sta_ip4_netmask", ip_info.ip4_netmask);
+            cJSON_AddStringToObject(resp_root, "wifi_sta_ip4_gateway", ip_info.ip4_gateway);
+
+            char* ipv6_addr[IPV6_ADDR_COUNT];
+            for (size_t i=0; i<ip_info.ip6_count; i++) {
+                ipv6_addr[i] = (char*)&ip_info.ip6_addr[i];
+            }
+            cJSON_AddItemToObjectCS(resp_root, "wifi_sta_ip6_address",
+                                    cJSON_CreateStringArray((const char**)ipv6_addr, ip_info.ip6_count));
+        }
     }
 }
 
@@ -184,12 +200,26 @@ static void json_get_wifi_connect(cJSON* resp_root, cJSON* req) {
 
 static void json_get_wifi_ap_status(cJSON* resp_root) {
     char ssid[WIFI_SSID_MAXLEN];
+    ip_info_t ip_info;
     esp_err_t ret = wifi_ap_query(ssid, WIFI_SSID_MAXLEN);
 
     cJSON_AddBoolToObject(resp_root, "wifi_ap_turned_on", ret == ESP_OK);
 
     if (ret == ESP_OK) {
         cJSON_AddStringToObject(resp_root, "wifi_ap_ssid", ssid);
+
+        if (wifi_query_ip_info(1, &ip_info) == ESP_OK) {
+            cJSON_AddStringToObject(resp_root, "wifi_ap_ip4_address", ip_info.ip4_addr);
+            cJSON_AddStringToObject(resp_root, "wifi_ap_ip4_netmask", ip_info.ip4_netmask);
+            cJSON_AddStringToObject(resp_root, "wifi_ap_ip4_gateway", ip_info.ip4_gateway);
+
+            char* ipv6_addr[IPV6_ADDR_COUNT];
+            for (size_t i=0; i<ip_info.ip6_count; i++) {
+                ipv6_addr[i] = (char*)&ip_info.ip6_addr[i];
+            }
+            cJSON_AddItemToObjectCS(resp_root, "wifi_ap_ip6_address",
+                                    cJSON_CreateStringArray((const char**)ipv6_addr, ip_info.ip6_count));
+        }
     }
 }
 
@@ -213,6 +243,9 @@ static cJSON* json_get_parser(cJSON* req) {
 
     if (strcmp(req_method, "get") == 0) {
         json_get_get_fields(resp_root, cJSON_GetObjectItem(req, "fields"));
+    } else if (strcmp(req_method, "set") == 0) {
+        cJSON_AddStringToObject(resp_root, "return_value",
+                                json_post_set_fields(cJSON_GetObjectItem(req, "fields")));
     } else if (strcmp(req_method, "wifi_sta_status") == 0) {
         json_get_wifi_sta_status(resp_root);
     } else if (strcmp(req_method, "wifi_sta_connect") == 0) {

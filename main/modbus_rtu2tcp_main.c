@@ -196,7 +196,7 @@ static void wifi_event_handler(void* arg, esp_event_base_t event_base,
         ESP_ERROR_CHECK(tcpip_adapter_get_netif(TCPIP_ADAPTER_IF_AP, (void**) &netif));
         ip6_addr_t ip6ll;
         ESP_ERROR_CHECK(ip6addr_aton("FE80::1", &ip6ll) == 1 ? 0 : 1);
-        netif_ip6_addr_set(netif, 0, &ip6ll);
+        netif_add_ip6_address(netif, &ip6ll, NULL);
 
         // IPv4 - 10.1.10.1
         tcpip_adapter_ip_info_t info = { 0, };
@@ -391,19 +391,12 @@ void app_main() {
 
     xTaskCreate(wifi_user_task, "wifi_user_task", 2048, NULL, 2, NULL);
 
-    printf("Hello world!\n");
-
-    /* Print chip information
     esp_chip_info_t chip_info;
     esp_chip_info(&chip_info);
-    printf("This is ESP8266 chip with %d CPU cores, WiFi, ",
-            chip_info.cores);
-
+    printf("Hardware info: ESP8266 with %d CPU cores, WiFi, ", chip_info.cores);
     printf("silicon revision %d, ", chip_info.revision);
-
     printf("%dMB %s flash\n", spi_flash_get_chip_size() / (1024 * 1024),
             (chip_info.features & CHIP_FEATURE_EMB_FLASH) ? "embedded" : "external");
-    */
 }
 
 esp_err_t wifi_sta_query_ap(char* ssid, size_t ssid_len) {
@@ -417,7 +410,33 @@ esp_err_t wifi_sta_query_ap(char* ssid, size_t ssid_len) {
 
     strncpy(ssid, (char*)ap_info.ssid, ssid_len);
     ssid[ssid_len - 1] = '\0';
+
     return ESP_OK;
+}
+
+esp_err_t wifi_query_ip_info(uint8_t sta_0_ap_1, ip_info_t* ip_info) {
+    if (sta_0_ap_1 > 1) {
+        return ESP_ERR_INVALID_ARG;
+    }
+
+    struct netif * netif = NULL;
+    if (tcpip_adapter_get_netif((tcpip_adapter_if_t) sta_0_ap_1, (void**) &netif) == ESP_OK) {
+        snprintf(ip_info->ip4_addr, IPV4_ADDR_MAXLEN, IPSTR, IP2STR(&(netif->ip_addr.u_addr.ip4)));
+        snprintf(ip_info->ip4_netmask, IPV4_ADDR_MAXLEN, IPSTR, IP2STR(&(netif->netmask.u_addr.ip4)));
+        snprintf(ip_info->ip4_gateway, IPV4_ADDR_MAXLEN, IPSTR, IP2STR(&(netif->gw.u_addr.ip4)));
+
+        ip_info->ip6_count = 0;
+        for (size_t i=0; i<LWIP_IPV6_NUM_ADDRESSES; i++) {
+            if (ip6_addr_isvalid(netif->ip6_addr_state[i])) {
+                snprintf(ip_info->ip6_addr[i], IPV6_ADDR_MAXLEN, IPV6STR, IPV62STR(netif->ip6_addr[i].u_addr.ip6));
+                ip_info->ip6_count++;
+            }
+        }
+
+        return ESP_OK;
+    }
+
+    return ESP_FAIL;
 }
 
 uint8_t wifi_sta_connect(char ssid[WIFI_SSID_MAXLEN], char password[WIFI_PASS_MAXLEN]) {

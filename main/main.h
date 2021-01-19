@@ -12,6 +12,9 @@
 #include <strings.h>
 #include "esp_err.h"
 
+#define IPV4_ADDR_MAXLEN 17
+#define IPV6_ADDR_MAXLEN 41
+#define IPV6_ADDR_COUNT 3
 #define CFG_STORAGE_NAMESPACE "app_cfg"
 #define WIFI_SSID_MAXLEN 32
 #define WIFI_PASS_MAXLEN 64
@@ -43,6 +46,15 @@ enum cfg_data_idt {
     CFG_IDT_MAX
 };
 
+typedef struct ip_info {
+    char ip4_addr[IPV4_ADDR_MAXLEN];
+    char ip4_netmask[IPV4_ADDR_MAXLEN];
+    char ip4_gateway[IPV4_ADDR_MAXLEN];
+    size_t ip6_count;
+    char ip6_addr[IPV6_ADDR_COUNT][IPV6_ADDR_MAXLEN];
+} ip_info_t;
+
+
 /**
  * If not set, ssid or pass will be a string with 0 length.
  */
@@ -61,6 +73,7 @@ esp_err_t cp_get_by_id_to_readable(enum cfg_data_idt id, char* buf, size_t maxle
 esp_err_t start_webserver(void);
 void stop_webserver(void);
 esp_err_t wifi_sta_query_ap(char* ssid, size_t ssid_len);
+esp_err_t wifi_query_ip_info(uint8_t sta_0_ap_1, ip_info_t* ip_info);
 uint8_t wifi_sta_connect(char ssid[WIFI_SSID_MAXLEN], char password[WIFI_PASS_MAXLEN]);
 uint8_t wifi_sta_query_status();
 void wifi_sta_disconnect();
