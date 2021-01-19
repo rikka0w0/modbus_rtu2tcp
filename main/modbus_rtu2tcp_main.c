@@ -9,8 +9,6 @@
 #include "nvs_flash.h"
 #include "esp_netif.h"
 
-#include "mdns.h"
-
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "freertos/event_groups.h"
@@ -132,31 +130,6 @@ static void wifi_check_sta() {
             }
         }
     }
-}
-
-static void initialise_mdns(void) {
-    //initialize mDNS
-    ESP_ERROR_CHECK( mdns_init() );
-    //set mDNS hostname (required if you want to advertise services)
-    ESP_ERROR_CHECK( mdns_hostname_set(hostname) );
-    ESP_LOGI(TAG, "mdns hostname set to: [%s]", hostname);
-    //set default mDNS instance name
-    ESP_ERROR_CHECK( mdns_instance_name_set("ESP8266 with mDNS") ); // EXAMPLE_MDNS_INSTANCE
-
-    //structure with TXT records
-    mdns_txt_item_t serviceTxtData[3] = {
-        {"board","esp8266"},
-        {"u","user"},
-        {"p","password"}
-    };
-
-    //initialize service
-    ESP_ERROR_CHECK( mdns_service_add("ESP32-WebServer", "_http", "_tcp", 80, serviceTxtData, 3) );
-    //add another TXT item
-    //ESP_ERROR_CHECK( mdns_service_txt_item_set("_http", "_tcp", "path", "/foobar") );
-    //change TXT item value
-    //ESP_ERROR_CHECK( mdns_service_txt_item_set("_http", "_tcp", "u", "admin") );
-    //free(hostname);
 }
 
 static void on_got_ip(void *arg, esp_event_base_t event_base,
@@ -385,7 +358,6 @@ void app_main() {
     } else {
         // AP mode only
         wifi_init_softap();
-        initialise_mdns();
     }
     ESP_ERROR_CHECK(esp_wifi_start());
 
