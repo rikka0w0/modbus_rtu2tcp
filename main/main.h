@@ -54,6 +54,9 @@ typedef struct ip_info {
     char ip6_addr[IPV6_ADDR_COUNT][IPV6_ADDR_MAXLEN];
 } ip_info_t;
 
+// cJSON helpers
+// This method assumes the name is a literal, immutable during the entire lifecycle.
+#define cJSON_AddStringToObjectCS(object, name, value) (cJSON_AddItemToObjectCS(object, name, cJSON_CreateString(value)))
 
 /**
  * If not set, ssid or pass will be a string with 0 length.

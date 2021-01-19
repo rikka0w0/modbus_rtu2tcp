@@ -146,20 +146,21 @@ static void json_get_wifi_sta_status(cJSON* resp_root) {
     char ssid[WIFI_SSID_MAXLEN];
     ip_info_t ip_info;
 
-    cJSON_AddStringToObject(resp_root, "wifi_sta_status", wifi_sta_status_str[wifi_sta_query_status()]);
+    cJSON_AddStringToObjectCS(resp_root, "wifi_sta_status", wifi_sta_status_str[wifi_sta_query_status()]);
 
     if (wifi_sta_query_ap(ssid, sizeof(ssid)) == ESP_OK) {
-        cJSON_AddStringToObject(resp_root, "wifi_sta_ap_ssid", ssid);
+        cJSON_AddStringToObjectCS(resp_root, "wifi_sta_ap_ssid", ssid);
 
         if (wifi_query_ip_info(0, &ip_info) == ESP_OK) {
-            cJSON_AddStringToObject(resp_root, "wifi_sta_ip4_address", ip_info.ip4_addr);
-            cJSON_AddStringToObject(resp_root, "wifi_sta_ip4_netmask", ip_info.ip4_netmask);
-            cJSON_AddStringToObject(resp_root, "wifi_sta_ip4_gateway", ip_info.ip4_gateway);
+            cJSON_AddStringToObjectCS(resp_root, "wifi_sta_ip4_address", ip_info.ip4_addr);
+            cJSON_AddStringToObjectCS(resp_root, "wifi_sta_ip4_netmask", ip_info.ip4_netmask);
+            cJSON_AddStringToObjectCS(resp_root, "wifi_sta_ip4_gateway", ip_info.ip4_gateway);
 
             char* ipv6_addr[IPV6_ADDR_COUNT];
             for (size_t i=0; i<ip_info.ip6_count; i++) {
                 ipv6_addr[i] = (char*)&ip_info.ip6_addr[i];
             }
+            ESP_LOGI("STA_IPv6","--------");
             cJSON_AddItemToObjectCS(resp_root, "wifi_sta_ip6_address",
                                     cJSON_CreateStringArray((const char**)ipv6_addr, ip_info.ip6_count));
         }
@@ -182,14 +183,14 @@ static void json_get_wifi_connect(cJSON* resp_root, cJSON* req) {
         strncpy(sta_ssid_req, cJSON_GetStringValue(req_item_node), WIFI_SSID_MAXLEN);
         // Trucate the string if it is greater than WIFI_SSID_MAXLEN-1
         sta_ssid_req[WIFI_SSID_MAXLEN-1] = '\0';
-        cJSON_AddStringToObject(resp_root, "wifi_sta_ssid", sta_ssid_req);
+        cJSON_AddStringToObjectCS(resp_root, "wifi_sta_ssid", sta_ssid_req);
 
         req_item_node = cJSON_GetObjectItem(req, "wifi_sta_pass");
         if (req_item_node != NULL) {
             strncpy(sta_pass_req, cJSON_GetStringValue(req_item_node), WIFI_PASS_MAXLEN);
             // Trucate the string if it is greater than WIFI_PASS_MAXLEN-1
             sta_pass_req[WIFI_PASS_MAXLEN-1] = '\0';
-            cJSON_AddStringToObject(resp_root, "wifi_sta_pass", sta_pass_req);
+            cJSON_AddStringToObjectCS(resp_root, "wifi_sta_pass", sta_pass_req);
         }
     }
 
@@ -206,12 +207,12 @@ static void json_get_wifi_ap_status(cJSON* resp_root) {
     cJSON_AddBoolToObject(resp_root, "wifi_ap_turned_on", ret == ESP_OK);
 
     if (ret == ESP_OK) {
-        cJSON_AddStringToObject(resp_root, "wifi_ap_ssid", ssid);
+        cJSON_AddStringToObjectCS(resp_root, "wifi_ap_ssid", ssid);
 
         if (wifi_query_ip_info(1, &ip_info) == ESP_OK) {
-            cJSON_AddStringToObject(resp_root, "wifi_ap_ip4_address", ip_info.ip4_addr);
-            cJSON_AddStringToObject(resp_root, "wifi_ap_ip4_netmask", ip_info.ip4_netmask);
-            cJSON_AddStringToObject(resp_root, "wifi_ap_ip4_gateway", ip_info.ip4_gateway);
+            cJSON_AddStringToObjectCS(resp_root, "wifi_ap_ip4_address", ip_info.ip4_addr);
+            cJSON_AddStringToObjectCS(resp_root, "wifi_ap_ip4_netmask", ip_info.ip4_netmask);
+            cJSON_AddStringToObjectCS(resp_root, "wifi_ap_ip4_gateway", ip_info.ip4_gateway);
 
             char* ipv6_addr[IPV6_ADDR_COUNT];
             for (size_t i=0; i<ip_info.ip6_count; i++) {
@@ -244,7 +245,7 @@ static cJSON* json_get_parser(cJSON* req) {
     if (strcmp(req_method, "get") == 0) {
         json_get_get_fields(resp_root, cJSON_GetObjectItem(req, "fields"));
     } else if (strcmp(req_method, "set") == 0) {
-        cJSON_AddStringToObject(resp_root, "return_value",
+        cJSON_AddStringToObjectCS(resp_root, "return_value",
                                 json_post_set_fields(cJSON_GetObjectItem(req, "fields")));
     } else if (strcmp(req_method, "wifi_sta_status") == 0) {
         json_get_wifi_sta_status(resp_root);

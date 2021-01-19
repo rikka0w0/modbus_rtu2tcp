@@ -4,6 +4,11 @@
 #include <stdint.h>
 #include <strings.h>
 
+// GPIO ID of the DE pin
+#define MODBUS_GPIO_DE_ID 0
+// Invert the polarity of the DE pin
+#define MODBUS_GPIO_DE_INV 1
+
 #define MODBUS_TCP_PAYLOAD_OFFSET 6
 #define MODBUS_RTU_PDU_MAXLEN       252
 #define MODBUS_RTU_FRAME_MAXLEN     256

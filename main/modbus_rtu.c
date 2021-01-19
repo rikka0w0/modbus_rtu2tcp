@@ -13,9 +13,17 @@
 
 #include "driver/uart.h"
 #include "driver/gpio.h"
+#include "esp8266/gpio_struct.h"
 
-#define MODBUS_GPIO_DE_ID 15
 #define MODBUS_GPIO_DE_BIT (1<<MODBUS_GPIO_DE_ID)
+#if MODBUS_GPIO_DE_INV == 1
+#define MODBUS_GPIO_DE_SET() (GPIO.out_w1tc |= MODBUS_GPIO_DE_BIT)
+#define MODBUS_GPIO_DE_CLR() (GPIO.out_w1ts |= MODBUS_GPIO_DE_BIT)
+#else
+#define MODBUS_GPIO_DE_SET() (GPIO.out_w1ts |= MODBUS_GPIO_DE_BIT)
+#define MODBUS_GPIO_DE_CLR() (GPIO.out_w1tc |= MODBUS_GPIO_DE_BIT)
+#endif
+
 
 #define UART_EMPTY_THRESH_DEFAULT  (10)
 #define UART_FULL_THRESH_DEFAULT  (120)
@@ -53,10 +61,6 @@ typedef struct uart_modbus_obj {
 
 static uart_modbus_obj_t* p_uart_obj = {0};
 
-void modbus_gpio_rxen_set(uint32_t val) {
-    gpio_set_level(MODBUS_GPIO_DE_ID, val);
-}
-
 static void uart_modbus_intr_handler(void *param) {
     uart_modbus_obj_t* p_uart = (uart_modbus_obj_t*)param;
     BaseType_t task_woken = 0;
@@ -75,7 +79,7 @@ static void uart_modbus_intr_handler(void *param) {
                     break;
                 } else {
                     // The first interrupt, set DE high to enable tx
-                    modbus_gpio_rxen_set(1);
+                    MODBUS_GPIO_DE_SET();
                     ets_delay_us(p_uart_obj->tx_delay_us);
                     p_uart->tx_ptr = p_uart->tx_buffer;
                 }
@@ -86,7 +90,7 @@ static void uart_modbus_intr_handler(void *param) {
 
                     // Although we have pushed the last byte into the buffer, but the UART will take sometime to send it
                     ets_delay_us(p_uart_obj->char_duration_us);
-                    modbus_gpio_rxen_set(0);
+                    MODBUS_GPIO_DE_CLR();
 
                     xSemaphoreGiveFromISR(p_uart->tx_done_sem, &task_woken);
                     if (task_woken == pdTRUE)
@@ -310,9 +314,9 @@ void modbus_uart_init(uint32_t baudrate, uint8_t parity, uint32_t tx_delay) {
     io_conf.pull_up_en = 0;
     //configure GPIO with the given settings
     gpio_config(&io_conf);
-    gpio_set_level(MODBUS_GPIO_DE_ID, 0);
+    gpio_set_level(MODBUS_GPIO_DE_ID, MODBUS_GPIO_DE_INV);
 
-    xTaskCreate(modbus_rtu_task, "test_task", 2048, NULL, 10, NULL);
+    xTaskCreate(modbus_rtu_task, "uart_task", 2048, NULL, 10, NULL);
 }
 
 void modbus_uart_deinit() {
