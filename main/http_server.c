@@ -160,7 +160,6 @@ static void json_get_wifi_sta_status(cJSON* resp_root) {
             for (size_t i=0; i<ip_info.ip6_count; i++) {
                 ipv6_addr[i] = (char*)&ip_info.ip6_addr[i];
             }
-            ESP_LOGI("STA_IPv6","--------");
             cJSON_AddItemToObjectCS(resp_root, "wifi_sta_ip6_address",
                                     cJSON_CreateStringArray((const char**)ipv6_addr, ip_info.ip6_count));
         }

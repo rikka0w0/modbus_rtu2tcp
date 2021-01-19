@@ -12,8 +12,8 @@
 #include <strings.h>
 #include "esp_err.h"
 
-#define IPV4_ADDR_MAXLEN 17
-#define IPV6_ADDR_MAXLEN 41
+#define IPV4_ADDR_MAXLEN 16
+#define IPV6_ADDR_MAXLEN 40
 #define IPV6_ADDR_COUNT 3
 #define CFG_STORAGE_NAMESPACE "app_cfg"
 #define WIFI_SSID_MAXLEN 32

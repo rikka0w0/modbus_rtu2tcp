@@ -429,6 +429,7 @@ esp_err_t wifi_query_ip_info(uint8_t sta_0_ap_1, ip_info_t* ip_info) {
         for (size_t i=0; i<LWIP_IPV6_NUM_ADDRESSES; i++) {
             if (ip6_addr_isvalid(netif->ip6_addr_state[i])) {
                 snprintf(ip_info->ip6_addr[i], IPV6_ADDR_MAXLEN, IPV6STR, IPV62STR(netif->ip6_addr[i].u_addr.ip6));
+                ip_info->ip6_addr[i][IPV6_ADDR_MAXLEN-1] = '\0';
                 ip_info->ip6_count++;
             }
         }
