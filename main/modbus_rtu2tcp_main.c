@@ -116,11 +116,16 @@ static void wifi_check_sta() {
             ESP_ERROR_CHECK(esp_wifi_ap_get_sta_list(&sta_list));
 
             if (sta_list.num == 0) {
+                wifi_sta_load_cfg(&wifi_config);
+                if (wifi_config.sta.ssid[0] == '\0') {
+                    ESP_LOGI(STA_TAG, "Empty SSID for STA mode, stay in AP mode.");
+                    return;
+                }
+
                 ESP_LOGI(AP_TAG, "Switch-off the backup AP. Enter STA-only mode.");
                 ESP_ERROR_CHECK(esp_wifi_set_mode(WIFI_MODE_STA));
 
                 if (esp_wifi_sta_get_ap_info(&ap_rec) != ESP_OK) {
-                    wifi_sta_load_cfg(&wifi_config);
                     ESP_ERROR_CHECK(esp_wifi_set_config(ESP_IF_WIFI_STA, &wifi_config));
                     ESP_ERROR_CHECK(esp_wifi_connect());
                     ESP_LOGI(STA_TAG, "Reconnecting to %s", (char*) wifi_config.sta.ssid);
