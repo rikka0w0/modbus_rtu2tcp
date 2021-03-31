@@ -105,6 +105,7 @@ legend {
   <button class="tablinks" onclick="openTab(event, 'wifi')" id="defaultOpen">Wifi</button>
   <button class="tablinks" onclick="openTab(event, 'uart')">Uart</button>
   <button class="tablinks" onclick="openTab(event, 'log')">Log</button>
+  <!-- <button class="tablinks" onclick="openTab(event, 'ota')">OTA</button>  -->
   <button class="tablinks" onclick="openTab(event, 'about')">About</button>
 </div>
 
@@ -202,6 +203,15 @@ legend {
 	<fieldset> <legend>JSON Log</legend>
 		<div id="json_log" style="white-space: pre-wrap;">
 		</div>
+	</fieldset>
+</div>
+
+<div id="ota" class="tabcontent">
+	<label>Firmware Upgrade</label><br>
+	<fieldset> <legend>ESP8266</legend>
+		<label for="ota_esp8266_bin">URL of the new firmware (HTTP only):</label><br>
+		<input type="file" id="ota_esp8266_bin" name="fileContent"><br>
+		<button onclick="otaESP8266()">Upload and Start</button>
 	</fieldset>
 </div>
 
@@ -393,6 +403,20 @@ function apTurnOn() {
 function apTurnOff() {
 	var json_req = {method: "wifi_ap_off"};
 	xhttp_send("get", json_req);
+}
+
+function otaESP8266() {
+	var file = document.getElementById("ota_esp8266_bin").files[0];
+	if(!!file) {
+		var reader = new FileReader();
+		reader.readAsArrayBuffer(file);
+		reader.onload = function() {
+			var xhr = new XMLHttpRequest();
+			xhr.open("post", "/ota_post", true);
+			xhr.overrideMimeType("Content-Type", "application/octet-stream");
+    		xhr.send(this.result);
+		}
+	}
 }
 
 function readSettings() {

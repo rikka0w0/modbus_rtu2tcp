@@ -22,11 +22,9 @@
 #include "modbus.h"
 #include "modbus_tcp_server.h"
 
-static const char *TAG = "wifi softAP";
+static const char *TAG = "TCP/IP";
 static const char* STA_TAG = "Wifi STA";
 static const char* AP_TAG = "Wifi AP";
-
-static const char* hostname = "modbus_rtu2tcp";
 
 #define WIFI_EGBIT_GOT_IPV4     BIT(0)
 #define WIFI_EGBIT_GOT_IPV6     BIT(1)
@@ -155,12 +153,12 @@ static void wifi_event_handler(void* arg, esp_event_base_t event_base,
                                     int32_t event_id, void* event_data) {
     if (event_id == WIFI_EVENT_AP_STACONNECTED) {
         wifi_event_ap_staconnected_t* event = (wifi_event_ap_staconnected_t*) event_data;
-        ESP_LOGI(TAG, "station "MACSTR" join, AID=%d",
+        ESP_LOGI(AP_TAG, "station "MACSTR" join, AID=%d",
                  MAC2STR(event->mac), event->aid);
     } else if (event_id == WIFI_EVENT_AP_STADISCONNECTED) {
         wifi_check_sta();
         wifi_event_ap_stadisconnected_t* event = (wifi_event_ap_stadisconnected_t*) event_data;
-        ESP_LOGI(TAG, "station "MACSTR" leave, AID=%d",
+        ESP_LOGI(AP_TAG, "station "MACSTR" leave, AID=%d",
                  MAC2STR(event->mac), event->aid);
     } else if (event_id == WIFI_EVENT_AP_START) {
         // IPv6 - FE80::1
@@ -186,7 +184,7 @@ static void wifi_event_handler(void* arg, esp_event_base_t event_base,
         tcpip_adapter_create_ip6_linklocal(TCPIP_ADAPTER_IF_STA);
         xEventGroupSetBits(s_connect_event_group, WIFI_EGBIT_STA_CONN);
     } else if (event_id == WIFI_EVENT_STA_DISCONNECTED) {
-        ESP_LOGI("STA_DISC", "%d", ((wifi_event_sta_disconnected_t*)event_data)->reason);
+        ESP_LOGI(STA_TAG, "WIFI_EVENT_STA_DISCONNECTED, reason %d", ((wifi_event_sta_disconnected_t*)event_data)->reason);
         xEventGroupSetBits(s_connect_event_group, WIFI_EGBIT_STA_DISC);
     } else if (event_id == WIFI_EVENT_STA_START) {
         if (wifi_sta_preferred()) {
@@ -202,7 +200,7 @@ void wifi_init_softap() {
     ESP_ERROR_CHECK(esp_wifi_set_mode(WIFI_MODE_APSTA));
     ESP_ERROR_CHECK(esp_wifi_set_config(ESP_IF_WIFI_AP, &wifi_config));
 
-    ESP_LOGI(TAG, "wifi_init_softap finished. SSID:%s password:%s",
+    ESP_LOGI(AP_TAG, "wifi_init_softap finished. SSID:%s password:%s",
              (char*) wifi_config.ap.ssid, (char*) wifi_config.ap.password);
 }
 
@@ -210,12 +208,12 @@ void wifi_init_sta() {
     wifi_config_t wifi_config = { 0 };
     wifi_sta_load_cfg(&wifi_config);
     if (wifi_config.sta.ssid[0] == '\0') {
-        ESP_LOGW(TAG, "Empty SSID in STA mode, switching to AP mode.");
+        ESP_LOGW(STA_TAG, "Empty SSID in STA mode, switching to AP mode.");
         wifi_init_softap();
         return;
     }
 
-    ESP_LOGI(TAG, "Connecting to %s...", wifi_config.sta.ssid);
+    ESP_LOGI(STA_TAG, "Connecting to %s...", wifi_config.sta.ssid);
     ESP_ERROR_CHECK(esp_wifi_set_mode(WIFI_MODE_STA));
     ESP_ERROR_CHECK(esp_wifi_set_config(ESP_IF_WIFI_STA, &wifi_config));
 }
@@ -240,7 +238,8 @@ static void wifi_cfg_sta() {
     }
     xSemaphoreGive(s_wifi_cfg.sta_mutex_req);
 
-    ESP_LOGI(TAG, "Connecting to %s...", wifi_config.sta.ssid);
+    ESP_ERROR_CHECK(esp_wifi_set_config(ESP_IF_WIFI_STA, &wifi_config));
+    ESP_LOGI(STA_TAG, "Connecting to %s...", wifi_config.sta.ssid);
 }
 
 static void timer_sta_reconn_expire(xTimerHandle pxTimer) {
@@ -314,8 +313,8 @@ static void wifi_user_task(void* param) {
             if (s_wifi_cfg.sta_conn_status != STA_CONNECTING) {
                 s_wifi_cfg.sta_conn_status = STA_CONNECTING;
 
-                wifi_cfg_sta();
                 ESP_ERROR_CHECK(esp_wifi_disconnect());
+                wifi_cfg_sta();
                 ESP_ERROR_CHECK(esp_wifi_connect());
             }
         }
@@ -430,7 +429,7 @@ uint8_t wifi_sta_connect(char ssid[WIFI_SSID_MAXLEN], char password[WIFI_PASS_MA
     xSemaphoreGive(s_wifi_cfg.sta_mutex_req);
 
     xEventGroupSetBits(s_connect_event_group, WIFI_EGBIT_STA_CONN_REQ);
-    ESP_LOGI(STA_TAG, "wifi_sta_connect()");
+    ESP_LOGI(STA_TAG, "Requested connecting to: %s", ssid);
 
     return 1;
 }

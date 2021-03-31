@@ -16,6 +16,7 @@
 #include "esp_http_server_ext.h"
 
 #include "main.h"
+#include "ota.h"
 
 #define HTTP_GET_ARG_MAXLEN 512
 #define HTTP_PARAM_MAXLEN 128
@@ -405,6 +406,58 @@ httpd_uri_t json_post = {
     .handler   = json_post_handler
 };
 
+#if OTA_ESP_ENABLED
+static esp_err_t ota_post_handler(httpd_req_t *req) {
+    esp_err_t ret = ESP_OK;
+    char* status_code = HTTPD_200;
+    char buf[255];
+
+    size_t remaining = req->content_len;
+
+    ESP_LOGI("OTA", "Blob Size: %d bytes", remaining);
+    ret = ota_esp_begin(remaining);
+    if (ret != ESP_OK) {
+        status_code = HTTPD_500;
+        goto func_ret;
+    }
+
+    while (remaining > 0) {
+        ret = httpd_req_recv(req, buf, sizeof(buf));
+
+        if (ret > 0) {
+            remaining -= ret;
+
+            ota_esp_buf_write(buf, ret);
+
+            ret = ESP_OK;
+        } else if (ret == HTTPD_SOCK_ERR_TIMEOUT) {
+            /* Retry receiving if timeout occurred */
+            continue;
+        } else {
+            ret = ESP_FAIL;
+            goto func_ret;
+        }
+    }
+
+    ret = ota_esp_end();
+    if (ret != ESP_OK) {
+        status_code = HTTPD_500;
+        goto func_ret;
+    }
+
+func_ret:
+    httpd_resp_set_status(req, status_code);
+
+    return ret;
+}
+
+httpd_uri_t ota_post = {
+    .uri       = "/ota_post",
+    .method    = HTTP_POST,
+    .handler   = ota_post_handler
+};
+#endif // OTA_ESP_ENABLED
+
 esp_err_t start_webserver(void) {
     if (server != NULL)
         return ESP_OK;
@@ -421,6 +474,9 @@ esp_err_t start_webserver(void) {
         httpd_register_uri_handler(server, &restart);
         httpd_register_uri_handler(server, &json_get);
         httpd_register_uri_handler(server, &json_post);
+#if OTA_ESP_ENABLED
+        httpd_register_uri_handler(server, &ota_post);
+#endif
         return ESP_OK;
     }
 

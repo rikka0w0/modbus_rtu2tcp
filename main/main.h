@@ -1,10 +1,3 @@
-/*
- * main.h
- *
- *  Created on: Dec 21, 2020
- *      Author: Administrator
- */
-
 #ifndef MAIN_MAIN_H_
 #define MAIN_MAIN_H_
 
@@ -21,6 +14,8 @@
 #define WIFI_AP_SSID_DEFAULT "Modbus RTU2TCP"
 #define WIFI_AP_PASS_DEFAULT "password"
 #define WIFI_AP_MAX_CONN_DEFAULT 3
+
+#define UART_BAUD_DEFAULT 115200
 
 enum cfg_data_type {
     CFG_DATA_UNKNOWN = 0,
