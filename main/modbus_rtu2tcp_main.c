@@ -363,6 +363,7 @@ void app_main() {
         // AP mode only
         wifi_init_softap();
     }
+    ESP_ERROR_CHECK(esp_wifi_set_ps(WIFI_PS_NONE));
     ESP_ERROR_CHECK(esp_wifi_start());
 
     xTaskCreate(wifi_user_task, "wifi_user_task", 2048, NULL, 2, NULL);
