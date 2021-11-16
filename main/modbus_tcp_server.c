@@ -66,9 +66,6 @@ struct tcp_server_client_info_node {
     size_t frame_size; // Including the header
     size_t rx_buffer_ptr;
     uint8_t rx_buffer[TCP_SERVER_RXBUF_MAXLEN];
-    uint8_t frame_ready;
-    TimeOut_t frame_pending_expire_timeout;
-    TickType_t frame_pending_expire_remaining;
 };
 
 typedef struct tcp_server_client_info_list {
@@ -147,7 +144,6 @@ static tcp_server_client_info_node_t* cil_register_client(tcp_server_client_info
     node->socket = socket;
     node->frame_size = 0;
     node->rx_buffer_ptr = 0;
-    node->frame_ready = 0;
 
     if (list->last == NULL) {
         // List is empty
@@ -278,15 +274,6 @@ static int tcp_server_enable_keepalive(int socket) {
     return 0;
 }
 
-static void tcp_server_client_check_frame(tcp_server_client_info_node_t* client_node) {
-    if (tcp_server_client_frame_pop(client_node->socket, client_node->rx_buffer, client_node->frame_size)) {
-        client_node->frame_ready = 0;
-        client_node->frame_size = 0;
-    } else if (client_node->frame_ready == 0) {
-        client_node->frame_ready = 1;
-    }
-}
-
 // For both IPv4 and IPv6
 static void tcp_server_task(void *pvParameters) {
     tcp_server_config_t cfg;
@@ -349,64 +336,22 @@ static void tcp_server_task(void *pvParameters) {
         tcp_server_client_info_node_t* client_node;
         tcp_server_client_info_list_iterator_t iterator;
 
-        // Determine the set of sockets for monitoring
-        TickType_t max_block_tick = TCP_SERVER_BLOCKING_MAX_TICK;   // Maximum tick that select() can block
         fd_set read_fds;
         FD_ZERO(&read_fds);
         FD_SET(listener, &read_fds);    // Always watch the listener socket
         cil_iterator_init(&client_list, &iterator);
         while (cil_iterator_step(&iterator, &client_node)) {
-            if (client_node->frame_ready) {
-                if (client_node->frame_pending_expire_remaining < max_block_tick) {
-                    max_block_tick = client_node->frame_pending_expire_remaining;
-                }
-            } else {
-                FD_SET(client_node->socket, &read_fds);
-            }
+            FD_SET(client_node->socket, &read_fds);
         }
 
-        struct timeval timeout_val;
-        timeout_val.tv_usec = max_block_tick * OSTICK_PER_US;
-        timeout_val.tv_sec = timeout_val.tv_usec / 1000000;
-        timeout_val.tv_usec = timeout_val.tv_usec % 1000000;
         int fdmax = cil_max_socket(&client_list);
         fdmax = fdmax>listener ? fdmax : listener;
         // Re-use fdmax for the return value of select()
-        fdmax = select(fdmax+1, &read_fds, NULL, NULL, &timeout_val);
+        fdmax = select(fdmax+1, &read_fds, NULL, NULL, NULL);
         if (fdmax == -1) {
             TCPSVR_LOGE("Server-select() error lol!");
             break;
         }
-
-        cil_iterator_init(&client_list, &iterator);
-        while (cil_iterator_step(&iterator, &client_node)) {
-            if (client_node->frame_ready) {
-                if (xTaskCheckForTimeOut(&client_node->frame_pending_expire_timeout, &client_node->frame_pending_expire_remaining) == pdTRUE) {
-                    tcp_server_client_check_frame(client_node);
-                    if (client_node->frame_ready) {
-                        // The pending frame is still in the buffer
-                        client_node->frame_ready++;
-                        if (client_node->frame_ready > TCP_SERVER_FRAME_RETRY_MAX) {
-                            // Maximum retry reached
-                            client_node->frame_ready = 0;
-                            TCPSVR_LOGE("[%d] Frame expired!", client_node->socket);
-                            if (cfg.tcp_server_conn_down != NULL) {
-                                cfg.tcp_server_conn_down(&cfg, client_node->socket);
-                            }
-                            cil_iterator_remove_current(&iterator);
-                            close(client_node->socket);
-                            continue;   // The socket has been closed, no need to check is status
-                        } else {
-                            // Reset the timeout, allow for more retries
-                            vTaskSetTimeOutState(&client_node->frame_pending_expire_timeout);
-                            client_node->frame_pending_expire_remaining = TCP_SERVER_FRAME_PENDING_MAX_TICK;
-                        }
-                    } else {
-                        portYIELD();
-                    }
-                }
-            } // if (client_node->frame_ready)
-        } // while (cil_iterator_step(&iterator, &client_node))
 
         if (fdmax == 0) {
             // Timeout, nothing happened
@@ -458,14 +403,6 @@ static void tcp_server_task(void *pvParameters) {
                             client_node->rx_buffer_ptr = 0;
                             // A frame has become ready
                             tcp_server_client_frame_ready(client_node->socket, client_node->rx_buffer, client_node->frame_size);
-                            tcp_server_client_check_frame(client_node);
-                            if (client_node->frame_ready) {
-                                vTaskSetTimeOutState(&client_node->frame_pending_expire_timeout);
-                                client_node->frame_pending_expire_remaining = TCP_SERVER_FRAME_PENDING_MAX_TICK;
-                                TCPSVR_LOGW("[%d] A new frame is ready but cannot be consumed immediately!", client_node->socket);
-                            } else {
-                                portYIELD();
-                            }
                         } else if (client_node->rx_buffer_ptr > client_node->frame_size) {
                             TCPSVR_LOGE("[%d] client_node->rx_buffer_ptr > client_node->frame_size!", client_node->socket);
                         }

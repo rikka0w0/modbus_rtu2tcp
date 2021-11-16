@@ -35,13 +35,18 @@ void mbap_header_ntoh(mbap_header_t* header);
 void mbap_header_hton(mbap_header_t* header);
 
 void modbus_uart_init(uint32_t baudrate, uint8_t parity, uint32_t tx_delay);
-// Attempt to queue a new request to the fifo, non-blocking
-int modbus_uart_fifo_push(const rtu_session_t* session_header, const void* payload, size_t len);
+// Attempt to queue a new request, block the caller task if the queue is full
+void modbus_uart_queue_send(const void* buf, size_t len);
 // Queue the response to the Tx FIFO of TCP, non-blocking
 void tcp_server_send_response(const rtu_session_t* session_header, void* payload, size_t len);
 
 void modbus_uart_set_baudrate(uint32_t baudrate);
 void modbus_uart_set_parity(uint8_t parity);
 void modbus_uart_set_tx_delay(uint32_t baudrate);
+
+#ifdef MODBUS_DEBUG
+void modbus_send_dummy(const rtu_session_t* session_header, uint8_t* rtu_request_payload);
+void hexdump(const uint8_t* buf, size_t len);
+#endif
 
 #endif /* MAIN_MODBUS_H_ */

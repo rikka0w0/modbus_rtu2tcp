@@ -60,3 +60,26 @@ void mbap_header_hton(mbap_header_t* header) {
     header->protocol_id = htons(header->protocol_id);
     header->length = htons(header->length);
 };
+
+#ifdef MODBUS_DEBUG
+void modbus_send_dummy(const rtu_session_t* session_header, uint8_t* rtu_request_payload) {
+    uint8_t num_data = rtu_request_payload[5];
+
+    size_t resp_len = MODBUS_TCP_PAYLOAD_OFFSET + 3 + num_data * 2;
+    static uint8_t payload[512];
+    payload[MODBUS_TCP_PAYLOAD_OFFSET + 1] = rtu_request_payload[1]; // Func code
+    payload[MODBUS_TCP_PAYLOAD_OFFSET + 2] = num_data * 2; // number of data bytes
+    for (int i=0; i<num_data; i++) {
+        payload[MODBUS_TCP_PAYLOAD_OFFSET + 3 + 2*i] = 0;
+        payload[MODBUS_TCP_PAYLOAD_OFFSET + 3 + 2*i + 1] = i;
+    }
+
+    tcp_server_send_response(session_header, payload, resp_len);
+}
+
+void hexdump(const uint8_t* buf, size_t len) {
+    for (size_t i=0; i<len; i++)
+        printf("%02X ", buf[i]);
+    printf("\n");
+}
+#endif

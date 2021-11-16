@@ -26,7 +26,5 @@ size_t tcp_server_frame_header_min_length();
 size_t tcp_server_frame_length_from_header(const void* buf, size_t len);
 // Called when the frame becomes ready (entirely placed in the buffer).
 void tcp_server_client_frame_ready(int client_socket, const void* buf, size_t len);
-// Return 1 if the frame is consumed, 0 if the frame is not consumed (e.g due to next level buffer is full)
-int tcp_server_client_frame_pop(int client_socket, const void* buf, size_t len);
 
 #endif

@@ -34,10 +34,6 @@ size_t tcp_server_frame_length_from_header(const void* buf, size_t len) {
 }
 
 void tcp_server_client_frame_ready(int client_socket, const void* buf, size_t len) {
-
-}
-
-int tcp_server_client_frame_pop(int client_socket, const void* buf, size_t len) {
     mbap_header_t header;
     memcpy(&header, buf, len);
     mbap_header_ntoh(&header);
@@ -48,5 +44,9 @@ int tcp_server_client_frame_pop(int client_socket, const void* buf, size_t len) 
     session_header.protocol_id = header.protocol_id;
     session_header.uid = header.uid;
 
-    return modbus_uart_fifo_push(&session_header, ((uint8_t*)buf) + MODBUS_TCP_PAYLOAD_OFFSET, len - MODBUS_TCP_PAYLOAD_OFFSET);
+    size_t payload_len = sizeof(rtu_session_t) + len - MODBUS_TCP_PAYLOAD_OFFSET;
+    uint8_t payload[sizeof(rtu_session_t) + MODBUS_RTU_PDU_MAXLEN];
+    memcpy(payload, &session_header, sizeof(rtu_session_t));
+    memcpy(payload+sizeof(rtu_session_t), ((uint8_t*)buf) + MODBUS_TCP_PAYLOAD_OFFSET, len - MODBUS_TCP_PAYLOAD_OFFSET);
+    modbus_uart_queue_send(payload, payload_len);
 }

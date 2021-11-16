@@ -42,7 +42,8 @@ typedef struct uart_modbus_obj {
     uint32_t tx_delay_us;
 
     SemaphoreHandle_t tx_done_sem;
-    uint8_t* tx_buffer;    // The tx buffer, allocated at UART init
+    uint8_t* tx_frame_buffer;    // The tx frame buffer, allocated at UART init
+    uint8_t* tx_buffer;    // The tx buffer, points to tx_frame_buffer+sizeof(rtu_session_t)
     uint32_t tx_len;       // The size of data in bytes in the buffer to be sent
     // The pointer to the first data to be sent
     // Non-null indicates a Tx is going on
@@ -175,33 +176,26 @@ static void uart_modbus_intr_handler(void *param) {
 
 static void modbus_rtu_task(void* param) {
     while (1) {
-        rtu_session_t session_header;
+        rtu_session_t* session_header;
         uint8_t* buf1 = NULL;
         uint8_t* buf2 = NULL;
         size_t buf1_len, buf2_len;
         if (xRingbufferReceiveSplit(p_uart_obj->tx_fifo, (void**)(&buf1), (void**)(&buf2), &buf1_len, &buf2_len, portMAX_DELAY)) {
-            memcpy(&session_header, buf1, buf1_len);
-            vRingbufferReturnItem(p_uart_obj->tx_fifo, buf1);
-
-            if (buf2 != NULL) {
-                memcpy(((uint8_t*)(&session_header)) + buf1_len, buf2, buf2_len);
-                vRingbufferReturnItem(p_uart_obj->tx_fifo, buf2);
-            }
-        }
-
-        if (xRingbufferReceiveSplit(p_uart_obj->tx_fifo, (void**)(&buf1), (void**)(&buf2), &buf1_len, &buf2_len, portMAX_DELAY)) {
-            memcpy(p_uart_obj->tx_buffer, buf1, buf1_len);
+            memcpy(p_uart_obj->tx_frame_buffer, buf1, buf1_len);
             p_uart_obj->tx_len = buf1_len;
             vRingbufferReturnItem(p_uart_obj->tx_fifo, buf1);
 
             if (buf2 != NULL) {
-                memcpy(((uint8_t*)(p_uart_obj->tx_buffer)) + buf1_len, buf2, buf2_len);
+                memcpy(p_uart_obj->tx_frame_buffer + buf1_len, buf2, buf2_len);
                 p_uart_obj->tx_len += buf2_len;
                 vRingbufferReturnItem(p_uart_obj->tx_fifo, buf2);
             }
         }
+        session_header = (rtu_session_t*)p_uart_obj->tx_frame_buffer;
+        p_uart_obj->tx_len -= sizeof(rtu_session_t);
 
         xSemaphoreTake(p_uart_obj->cfg_mux, portMAX_DELAY);
+
         uint16_t crc16 = modbus_rtu_crc16(p_uart_obj->tx_buffer, p_uart_obj->tx_len);
         p_uart_obj->tx_buffer[p_uart_obj->tx_len++] = crc16 & 0xFF; // Lower Byte
         p_uart_obj->tx_buffer[p_uart_obj->tx_len++] = (crc16>>8) & 0xFF; // Higher Byte
@@ -209,20 +203,22 @@ static void modbus_rtu_task(void* param) {
         p_uart_obj->tx_ptr = NULL;
         // Enter UART_TXFIFO_EMPTY_INT immediately
         // Tx FIFO is populated by the ISR
+        // ESP_LOGI("MODBUS", "Tx[%04X@%d]:", session_header->transaction_id, xTaskGetTickCount());
+        // hexdump(p_uart_obj->tx_buffer, p_uart_obj->tx_len);
         uart_enable_tx_intr(p_uart_obj->uart_num, 1, UART_EMPTY_THRESH_DEFAULT);
 
         xSemaphoreTake(p_uart_obj->tx_done_sem, portMAX_DELAY);
 
         if (xSemaphoreTake(p_uart_obj->rx_done_sem, 300/portTICK_RATE_MS) == pdTRUE) {
-            // ESP_LOGI("MODBUS", "Received %d bytes, overflow state %d", p_uart_obj->rx_len, p_uart_obj->rx_overflow);
-            // hexdump(session_header.socket, p_uart_obj->rx_buffer, p_uart_obj->rx_len);
+            // ESP_LOGI("MODBUS", "Rx[%04X@%d] %d bytes, overflow state %d", session_header->transaction_id, xTaskGetTickCount(), p_uart_obj->rx_len, p_uart_obj->rx_overflow);
+            // hexdump(p_uart_obj->rx_buffer, p_uart_obj->rx_len);
 
             buf1_len = p_uart_obj->rx_len-2;
             buf2_len = modbus_rtu_crc16(p_uart_obj->rx_buffer+MODBUS_TCP_PAYLOAD_OFFSET, buf1_len-MODBUS_TCP_PAYLOAD_OFFSET);
             if (    (p_uart_obj->rx_buffer[buf1_len] == (buf2_len & 0xFF)) &&
                     (p_uart_obj->rx_buffer[buf1_len+1] == ((buf2_len>>8) & 0xFF)) &&
-                    p_uart_obj->rx_buffer[MODBUS_TCP_PAYLOAD_OFFSET] == session_header.uid) {
-                tcp_server_send_response(&session_header, p_uart_obj->rx_buffer, buf1_len);
+                    p_uart_obj->rx_buffer[MODBUS_TCP_PAYLOAD_OFFSET] == session_header->uid) {
+                tcp_server_send_response(session_header, p_uart_obj->rx_buffer, buf1_len);
             } else {
                 ESP_LOGW("Modbus_Rx", "Bad CRC");
             }
@@ -233,6 +229,7 @@ static void modbus_rtu_task(void* param) {
         } else {
             ESP_LOGW("Modbus_Rx", "Rx timeout");
         }
+
         xSemaphoreGive(p_uart_obj->cfg_mux);
 
         // Inter-frame gap
@@ -262,7 +259,8 @@ void modbus_uart_init(uint32_t baudrate, uint8_t parity, uint32_t tx_delay) {
     p_uart_obj->tx_delay_us = tx_delay;
 
     p_uart_obj->tx_done_sem = xSemaphoreCreateBinary();
-    p_uart_obj->tx_buffer = malloc(MODBUS_BUF_SIZE);
+    p_uart_obj->tx_frame_buffer = malloc(sizeof(rtu_session_t) + MODBUS_BUF_SIZE);
+    p_uart_obj->tx_buffer = p_uart_obj->tx_frame_buffer + sizeof(rtu_session_t);
     p_uart_obj->tx_len = 0;
     p_uart_obj->tx_ptr = NULL;
 
@@ -316,13 +314,13 @@ void modbus_uart_init(uint32_t baudrate, uint8_t parity, uint32_t tx_delay) {
     gpio_config(&io_conf);
     gpio_set_level(MODBUS_GPIO_DE_ID, MODBUS_GPIO_DE_INV);
 
-    xTaskCreate(modbus_rtu_task, "uart_task", 2048, NULL, 10, NULL);
+    xTaskCreate(modbus_rtu_task, "uart_task", 2048, NULL, 7, NULL);
 }
 
 void modbus_uart_deinit() {
     if (p_uart_obj != NULL) {
         vSemaphoreDelete(p_uart_obj->tx_done_sem);
-        free(p_uart_obj->tx_buffer);
+        free(p_uart_obj->tx_frame_buffer);
         vSemaphoreDelete(p_uart_obj->rx_done_sem);
         free(p_uart_obj->rx_buffer);
         vRingbufferDelete(p_uart_obj->tx_fifo);
@@ -331,18 +329,9 @@ void modbus_uart_deinit() {
     }
 }
 
-int modbus_uart_fifo_push(const rtu_session_t* session_header, const void* payload, size_t len) {
-    // The mutex ensures the head and its payload are added to the ringbuf together
-    if (xSemaphoreTake(p_uart_obj->tx_fifo_mux, 0) == pdTRUE) {
-        if (xRingbufferGetCurFreeSize(p_uart_obj->tx_fifo) > 2*8 + sizeof(rtu_session_t) + len) {
-            xRingbufferSend(p_uart_obj->tx_fifo, session_header, sizeof(rtu_session_t), 0);
-            xRingbufferSend(p_uart_obj->tx_fifo, payload, len, 0);
-            xSemaphoreGive(p_uart_obj->tx_fifo_mux);
-            return 1;
-        }
-        xSemaphoreGive(p_uart_obj->tx_fifo_mux);
-    }
-    return 0;
+void modbus_uart_queue_send(const void* buf, size_t len) {
+	xRingbufferSend(p_uart_obj->tx_fifo, buf, len, portMAX_DELAY);
+	portYIELD();
 }
 
 void modbus_uart_set_baudrate(uint32_t baudrate) {
